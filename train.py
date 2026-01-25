@@ -11,6 +11,7 @@ from src.model.vocab import Vocabulary
 from src.core.training import train_one_epoch
 from src.core.flow_helper import CubicScheduler
 from src.utils.checkpoint import CheckpointManager, TrainingState
+from src.utils.lr_scheduler import create_warmup_cosine_scheduler
 
 
 def parse_args():
@@ -24,6 +25,8 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=10, help="Number of epochs")
     parser.add_argument("--batch-size", type=int, default=2, help="Batch size")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--warmup-epochs", type=int, default=2, help="Number of warmup epochs")
+    parser.add_argument("--min-lr", type=float, default=1e-6, help="Minimum learning rate")
 
     # Checkpoint
     parser.add_argument("--checkpoint-dir", type=str, default="checkpoints",
@@ -118,10 +121,13 @@ def main():
     ).to(device)
     print(f"Model parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
 
-    # Optimizer & Scheduler
+    # Optimizer & Schedulers
     all_params = list(model.parameters()) + list(data_encoder.parameters())
     optimizer = torch.optim.Adam(all_params, lr=args.lr)
-    scheduler = CubicScheduler(a=args.scheduler_a, b=args.scheduler_b)
+    flow_scheduler = CubicScheduler(a=args.scheduler_a, b=args.scheduler_b)
+    lr_scheduler = create_warmup_cosine_scheduler(
+        optimizer, args.epochs, args.warmup_epochs, args.min_lr
+    )
 
     # 从检查点恢复
     if args.resume_from:
@@ -138,7 +144,8 @@ def main():
     # Train
     for epoch in range(start_epoch, args.epochs):
         print(f"\n--- Epoch {epoch + 1}/{args.epochs} ---")
-        avg_loss = train_one_epoch(model, data_loader, optimizer, scheduler, device, vocab, data_encoder)
+        avg_loss = train_one_epoch(model, data_loader, optimizer, flow_scheduler, device, vocab, data_encoder)
+        lr_scheduler.step()
         print(f"Average loss: {avg_loss:.4f}")
 
         training_state.global_step += len(data_loader)
