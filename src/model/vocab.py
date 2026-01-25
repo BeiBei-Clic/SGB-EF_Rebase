@@ -9,7 +9,7 @@ class Vocabulary:
 
     # Define token categories as class constants for reference
     OPERATORS = ['add', 'sub', 'mul', 'div', 'pow']
-    FUNCTIONS = ['sin', 'cos', 'tan', 'exp', 'ln', 'sqrt']
+    FUNCTIONS = ['sin', 'cos', 'tan', 'exp', 'ln', 'sqrt', 'arcsin', 'arccos', 'arctan']
     SPECIAL_TOKENS = ['<gap>', 'constant', '<s>', '</s>', '<pad>', '<mask>']
 
     def __init__(self, num_variables: int = 0, data_vocab_size: int = None):
