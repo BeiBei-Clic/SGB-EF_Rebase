@@ -1,5 +1,4 @@
-from typing import Tuple, cast
-from torchtyping import TensorType as T
+from typing import Tuple
 
 import torch
 import torch.nn as nn
@@ -13,7 +12,7 @@ class SinusoidalTimeEmbedding(nn.Module):
         super(SinusoidalTimeEmbedding, self).__init__()
         self.hidden_dim = hidden_dim
 
-    def forward(self, t: T["batch", 1, "float"]) -> T["batch", "hidden_dim"]:
+    def forward(self, t: torch.Tensor) -> torch.Tensor:  # (batch, 1) -> (batch, hidden_dim)
         if t.dim() == 1:
             t = t.unsqueeze(-1)  # Make it (batch_size, 1)
 
@@ -97,13 +96,13 @@ class EditFlowsTransformer(nn.Module):
             elif isinstance(module, nn.Embedding):
                 torch.nn.init.normal_(module.weight, std=0.02)
 
-    def forward(self, tokens: T["batch", "x_seq_len", "long"], 
-                time_step: T["batch", 1, "float"],
-                padding_mask: T["batch", "x_seq_len", "bool"]) \
-        -> Tuple[
-            T["batch", "x_seq_len", "float"],         # Rates (3 values)
-            T["batch", "x_seq_len", "vocab_size"],    # Insert probabilities (vocab_size values)
-            T["batch", "x_seq_len", "vocab_size"],    # Substitute probabilities (vocab_size values)
+    def forward(self, tokens: torch.Tensor,  # (batch, x_seq_len)
+                time_step: torch.Tensor,  # (batch, 1)
+                padding_mask: torch.Tensor  # (batch, x_seq_len)
+                ) -> Tuple[
+            torch.Tensor,  # Rates (batch, x_seq_len, 3)
+            torch.Tensor,  # Insert probabilities (batch, x_seq_len, vocab_size)
+            torch.Tensor,  # Substitute probabilities (batch, x_seq_len, vocab_size)
         ]:
         """Forward pass takes in x_t, t, and padding mask, returns rates and probabilities
         """
@@ -140,7 +139,7 @@ class EditFlowsTransformer(nn.Module):
             raise ValueError("NaN detected in output probabilities or rates")
 
         return (
-            cast(T["batch", "x_seq_len", "float"], rates),
-            cast(T["batch", "x_seq_len", "vocab_size"], ins_probs),
-            cast(T["batch", "x_seq_len", "vocab_size"], sub_probs),
+            rates,
+            ins_probs,
+            sub_probs,
         )
