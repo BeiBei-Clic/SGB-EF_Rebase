@@ -25,9 +25,6 @@ def train_one_epoch(
     scheduler: CubicScheduler,
     device: torch.device,
     vocab: Vocabulary,
-    vocab_size: int,
-    gap_token: int,
-    pad_token: int,
     debug: bool = False,
 ):
     """Single training epoch loop.
@@ -38,7 +35,7 @@ def train_one_epoch(
         optimizer: Optimizer (e.g., Adam)
         scheduler: Kappa scheduler for flow interpolation
         device: Device to train on
-        vocab: Vocabulary for token IDs
+        vocab: Vocabulary for token IDs and vocab_size
         debug: If True, print debug information
     """
     model.train()
@@ -48,18 +45,18 @@ def train_one_epoch(
         x_0, x_1, z_0, z_1, t, x_values, y_target = batch
 
         # 2. 计算 z_t（在 Z 空间插值）
-        z_t = sample_cond_pt(x2prob(z_0, vocab_size), x2prob(z_1, vocab_size), t, scheduler)
+        z_t = sample_cond_pt(x2prob(z_0, vocab.data_vocab_size), x2prob(z_1, vocab.data_vocab_size), t, scheduler)
 
         # 3. 计算 x_t（移除 gap tokens）
-        x_t, x_pad_mask, z_gap_mask, z_pad_mask = rm_gap_tokens(z_t, pad_token, gap_token)
+        x_t, x_pad_mask, z_gap_mask, z_pad_mask = rm_gap_tokens(z_t, vocab.pad_token, vocab.gap_token)
 
         # 4. 计算编辑操作掩码
         uz_mask = make_ut_mask_from_z(
             z_t,
             z_1,
-            vocab_size=vocab_size,
-            pad_token=pad_token,
-            gap_token=gap_token,
+            vocab_size=vocab.data_vocab_size,
+            pad_token=vocab.pad_token,
+            gap_token=vocab.gap_token,
         )
 
         # 5. 模型前向传播
@@ -139,18 +136,17 @@ def main():
     # Create vocabulary - data was generated with different vocab size
     # For now, use a larger vocab_size to accommodate the data
     # TODO: Fix token mapping consistency
-    vocab = Vocabulary(num_variables=1)  # For single variable x0
-    vocab_size = 25  # Use larger vocab size for testing (data has tokens up to 24)
+    vocab = Vocabulary(num_variables=1, data_vocab_size=25)  # For single variable x0
 
-    # Get token IDs from data format (data uses hardcoded IDs)
-    GAP_TOKEN_ID = 0
-    PAD_TOKEN_ID = 4
-    BOS_TOKEN_ID = 2
+    # Data uses hardcoded token IDs - need these for model to match data format
+    data_bos_token_id = 2
+    data_pad_token_id = 4
 
-    print(f"Vocabulary size: {vocab.vocab_size} (model will use {vocab_size})")
-    print(f"Data GAP token ID: {GAP_TOKEN_ID}")
-    print(f"Data PAD token ID: {PAD_TOKEN_ID}")
-    print(f"Data BOS token ID: {BOS_TOKEN_ID}")
+    print(f"Vocabulary size: {vocab.vocab_size} (model will use {vocab.data_vocab_size})")
+    print(f"Gap token ID: {vocab.gap_token}")
+    print(f"Pad token ID: {vocab.pad_token}")
+    print(f"Data BOS token ID: {data_bos_token_id}")
+    print(f"Data PAD token ID: {data_pad_token_id}")
 
     # Create data loader
     data_loader = SRDataLoader(
@@ -164,13 +160,13 @@ def main():
 
     # Create model
     model = EditFlowsTransformer(
-        vocab_size=vocab_size,  # Use larger vocab size for data compatibility
+        vocab_size=vocab.data_vocab_size,  # Use data vocab size for compatibility
         hidden_dim=128,
         num_layers=2,
         num_heads=4,
         max_seq_len=256,
-        bos_token_id=BOS_TOKEN_ID,
-        pad_token_id=PAD_TOKEN_ID,
+        bos_token_id=data_bos_token_id,
+        pad_token_id=data_pad_token_id,
     ).to(device)
 
     print(f"Model parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
@@ -183,8 +179,7 @@ def main():
 
     # Run one training step with debug enabled
     print("\n=== Running training loop with debug ===")
-    train_one_epoch(model, data_loader, optimizer, scheduler, device, vocab, debug=True,
-                   vocab_size=vocab_size, gap_token=GAP_TOKEN_ID, pad_token=PAD_TOKEN_ID)
+    train_one_epoch(model, data_loader, optimizer, scheduler, device, vocab, debug=True)
     print("\n=== Training loop completed successfully ===")
 
 

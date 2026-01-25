@@ -12,11 +12,12 @@ class Vocabulary:
     FUNCTIONS = ['sin', 'cos', 'tan', 'exp', 'ln', 'sqrt']
     SPECIAL_TOKENS = ['<gap>', 'constant', '<s>', '</s>', '<pad>', '<mask>']
 
-    def __init__(self, num_variables: int = 0):
+    def __init__(self, num_variables: int = 0, data_vocab_size: int = None):
         """Initialize the vocabulary with all tokens.
 
         Args:
             num_variables: Number of variable tokens to add (x0, x1, x2, ...)
+            data_vocab_size: Optional vocab size for data format (if different from vocab_size)
         """
         # Define all tokens in order: operators, functions, variables, special tokens
         self._operators = list(self.OPERATORS)
@@ -31,10 +32,18 @@ class Vocabulary:
         self._token_to_id = {token: idx for idx, token in enumerate(self._tokens)}
         self._id_to_token = {idx: token for token, idx in self._token_to_id.items()}
 
+        # Store data_vocab_size for compatibility with data using different token mappings
+        self._data_vocab_size = data_vocab_size
+
     @property
     def vocab_size(self) -> int:
         """Return the total vocabulary size."""
         return len(self._tokens)
+
+    @property
+    def data_vocab_size(self) -> int:
+        """Return the data vocab size (for one-hot encoding with data compatibility)."""
+        return self._data_vocab_size if self._data_vocab_size is not None else self.vocab_size
 
     @property
     def special_tokens(self) -> Set[str]:
@@ -55,6 +64,16 @@ class Vocabulary:
     def variable_tokens(self) -> Set[str]:
         """Return the set of variable tokens."""
         return set(self._variables)
+
+    @property
+    def gap_token(self) -> int:
+        """Return the gap token ID."""
+        return self.token_to_id('<gap>')
+
+    @property
+    def pad_token(self) -> int:
+        """Return the pad token ID."""
+        return self.token_to_id('<pad>')
 
     def token_to_id(self, token: str) -> int:
         """Convert token string to integer ID."""
