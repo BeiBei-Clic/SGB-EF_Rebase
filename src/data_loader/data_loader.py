@@ -35,6 +35,8 @@ class SymbolicRegressionDataset(Dataset):
             'y_target': torch.from_numpy(self.data['y_target'][idx]),
             'z0_token_ids': torch.from_numpy(self.data['z0_token_ids'][idx]).long(),
             'z1_token_ids': torch.from_numpy(self.data['z1_token_ids'][idx]).long(),
+            'x0_token_ids': torch.from_numpy(self.data['x0_token_ids'][idx]).long(),
+            'x1_token_ids': torch.from_numpy(self.data['x1_token_ids'][idx]).long(),
         }
 
 
@@ -46,10 +48,11 @@ def make_batch(
     """Create a training batch from dataset indices.
 
     Returns:
+        x_0: Unaligned base sequences (batch_size, seq_len) - without gap tokens
+        x_1: Unaligned target sequences (batch_size, seq_len) - without gap tokens
         z_0: Aligned base sequences (batch_size, seq_len) - with gap tokens
         z_1: Aligned target sequences (batch_size, seq_len) - with gap tokens
         t: Time steps (batch_size, 1) - sampled from Uniform(0, 1)
-        padding_mask: Boolean mask (batch_size, seq_len) - True where padded
         x_values: Regression input features (batch_size, n_points, input_dim)
         y_target: Regression target values (batch_size, n_points)
     """
@@ -58,43 +61,64 @@ def make_batch(
 
     z0_ids_list = []
     z1_ids_list = []
+    x0_ids_list = []
+    x1_ids_list = []
     x_values_list = []
     y_target_list = []
 
     for sample in samples:
-        # Process z0_token_ids: [length_prefix, token1, token2, ..., padding]
-        z0_ids = sample['z0_token_ids'][1:]  # Remove length prefix
+        # Process z0_token_ids: [BOS, token1, token2, ..., padding]
+        z0_ids = sample['z0_token_ids']
         pad_mask = z0_ids != PAD_TOKEN_ID
         if pad_mask.any():
             actual_len = pad_mask.nonzero(as_tuple=False)[-1].item() + 1
             z0_ids = z0_ids[:actual_len]
         z0_ids_list.append(z0_ids)
 
-        # Process z1_token_ids
-        z1_ids = sample['z1_token_ids'][1:]  # Remove length prefix
+        # Process z1_token_ids: [BOS, token1, token2, ..., padding]
+        z1_ids = sample['z1_token_ids']
         pad_mask = z1_ids != PAD_TOKEN_ID
         if pad_mask.any():
             actual_len = pad_mask.nonzero(as_tuple=False)[-1].item() + 1
             z1_ids = z1_ids[:actual_len]
         z1_ids_list.append(z1_ids)
 
+        # Process x0_token_ids: [BOS, token1, token2, ..., padding] (no GAP tokens)
+        x0_ids = sample['x0_token_ids']
+        pad_mask = x0_ids != PAD_TOKEN_ID
+        if pad_mask.any():
+            actual_len = pad_mask.nonzero(as_tuple=False)[-1].item() + 1
+            x0_ids = x0_ids[:actual_len]
+        x0_ids_list.append(x0_ids)
+
+        # Process x1_token_ids: [BOS, token1, token2, ..., padding] (no GAP tokens)
+        x1_ids = sample['x1_token_ids']
+        pad_mask = x1_ids != PAD_TOKEN_ID
+        if pad_mask.any():
+            actual_len = pad_mask.nonzero(as_tuple=False)[-1].item() + 1
+            x1_ids = x1_ids[:actual_len]
+        x1_ids_list.append(x1_ids)
+
         x_values_list.append(sample['x_values'])
         y_target_list.append(sample['y_target'])
 
     # Pad sequences to max length
     z_max_len = max(max(len(z) for z in z0_ids_list), max(len(z) for z in z1_ids_list))
+    x0_max_len = max(len(x) for x in x0_ids_list)
+    x1_max_len = max(len(x) for x in x1_ids_list)
 
+    x_0 = torch.stack([F.pad(x, (0, x0_max_len - len(x)), value=PAD_TOKEN_ID) for x in x0_ids_list]).to(device)
+    x_1 = torch.stack([F.pad(x, (0, x1_max_len - len(x)), value=PAD_TOKEN_ID) for x in x1_ids_list]).to(device)
     z_0 = torch.stack([F.pad(z, (0, z_max_len - len(z)), value=PAD_TOKEN_ID) for z in z0_ids_list]).to(device)
     z_1 = torch.stack([F.pad(z, (0, z_max_len - len(z)), value=PAD_TOKEN_ID) for z in z1_ids_list]).to(device)
 
     t = torch.rand(batch_size, 1, device=device)
-    padding_mask = (z_1 == PAD_TOKEN_ID)
 
     # Stack x_values and y_target into batch tensors
     x_values_batch = torch.stack(x_values_list).to(device)  # (batch_size, n_points, input_dim)
     y_target_batch = torch.stack(y_target_list).to(device)  # (batch_size, n_points)
 
-    return z_0, z_1, t, padding_mask, x_values_batch, y_target_batch
+    return x_0, x_1, z_0, z_1, t, x_values_batch, y_target_batch
 
 
 class SRDataLoader:
