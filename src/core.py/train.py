@@ -7,6 +7,7 @@ import torch
 
 from src.data_loader.data_loader import SRDataLoader, make_batch
 from src.model.EditFlowsTransformer import EditFlowsTransformer
+from src.model.data_embedding import SetEncoder, prepare_encoder_input
 from src.model.vocab import Vocabulary
 from src.utils.flow_helper import (
     x2prob,
@@ -25,6 +26,7 @@ def train_one_epoch(
     scheduler: CubicScheduler,
     device: torch.device,
     vocab: Vocabulary,
+    data_encoder: SetEncoder = None,
     debug: bool = False,
 ):
     """Single training epoch loop.
@@ -36,21 +38,30 @@ def train_one_epoch(
         scheduler: Kappa scheduler for flow interpolation
         device: Device to train on
         vocab: Vocabulary for token IDs and vocab_size
+        data_encoder: SetEncoder for encoding (x_values, y_target) pairs
         debug: If True, print debug information
     """
     model.train()
+    if data_encoder is not None:
+        data_encoder.train()
 
     for step, batch in enumerate(data_loader):
         # 1. 读取 batch
         x_0, x_1, z_0, z_1, t, x_values, y_target = batch
 
-        # 2. 计算 z_t（在 Z 空间插值）
+        # 2. 编码数据点对作为条件
+        condition = None
+        if data_encoder is not None:
+            encoder_input = prepare_encoder_input(x_values, y_target)  # (B, n, d+1)
+            condition = data_encoder(encoder_input)  # (B, num_features, hidden_dim)
+
+        # 3. 计算 z_t（在 Z 空间插值）
         z_t = sample_cond_pt(x2prob(z_0, vocab.data_vocab_size), x2prob(z_1, vocab.data_vocab_size), t, scheduler)
 
-        # 3. 计算 x_t（移除 gap tokens）
+        # 4. 计算 x_t（移除 gap tokens）
         x_t, x_pad_mask, z_gap_mask, z_pad_mask = rm_gap_tokens(z_t, vocab.pad_token, vocab.gap_token)
 
-        # 4. 计算编辑操作掩码
+        # 5. 计算编辑操作掩码
         uz_mask = make_ut_mask_from_z(
             z_t,
             z_1,
@@ -59,11 +70,12 @@ def train_one_epoch(
             gap_token=vocab.gap_token,
         )
 
-        # 5. 模型前向传播
+        # 6. 模型前向传播
         u_t, ins_probs, sub_probs = model.forward(
             tokens=x_t,
             time_step=t,
             padding_mask=x_pad_mask,
+            condition=condition,
         )
 
         # 6. 准备损失计算的中间变量
@@ -158,7 +170,26 @@ def main():
     print(f"Dataset size: {len(data_loader.dataset)}")
     print(f"Number of batches: {len(data_loader)}")
 
-    # Create model
+    # 获取数据维度信息
+    first_batch = next(iter(data_loader))
+    _, _, _, _, _, x_values, y_target = first_batch
+    input_dim = x_values.shape[-1]  # x_values 维度
+    print(f"Input dimension: {input_dim}")
+
+    # 创建 SetEncoder（数据编码器）
+    data_encoder = SetEncoder(
+        dim_input=input_dim + 1,  # x_values + y_target
+        dim_hidden=128,
+        num_heads=4,
+        num_inds=32,
+        ln=True,
+        n_l_enc=2,
+        num_features=1,
+        linear=True,
+    ).to(device)
+    print(f"Data encoder parameters: {sum(p.numel() for p in data_encoder.parameters() if p.requires_grad)}")
+
+    # Create model with cross-attention enabled
     model = EditFlowsTransformer(
         vocab_size=vocab.data_vocab_size,  # Use data vocab size for compatibility
         hidden_dim=128,
@@ -167,19 +198,21 @@ def main():
         max_seq_len=256,
         bos_token_id=data_bos_token_id,
         pad_token_id=data_pad_token_id,
+        num_cond_features=1,  # 与 SetEncoder 的 num_features 对应
     ).to(device)
 
     print(f"Model parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
 
-    # Create optimizer
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+    # Create optimizer - 包含 encoder 和 model 参数
+    all_params = list(model.parameters()) + list(data_encoder.parameters())
+    optimizer = torch.optim.Adam(all_params, lr=0.0001)
 
     # Create scheduler
     scheduler = CubicScheduler(a=1.0, b=1.0)
 
     # Run one training step with debug enabled
     print("\n=== Running training loop with debug ===")
-    train_one_epoch(model, data_loader, optimizer, scheduler, device, vocab, debug=True)
+    train_one_epoch(model, data_loader, optimizer, scheduler, device, vocab, data_encoder, debug=True)
     print("\n=== Training loop completed successfully ===")
 
 
