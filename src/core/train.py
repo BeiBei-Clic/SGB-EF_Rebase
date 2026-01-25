@@ -9,7 +9,7 @@ from src.data_loader.data_loader import SRDataLoader, make_batch
 from src.model.EditFlowsTransformer import EditFlowsTransformer
 from src.model.data_embedding import SetEncoder, prepare_encoder_input
 from src.model.vocab import Vocabulary
-from src.utils.flow_helper import (
+from .flow_helper import (
     x2prob,
     sample_cond_pt,
     CubicScheduler,
