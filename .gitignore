@@ -41,3 +41,23 @@ ENV/
 Thumbs.db
 
 data
+
+# Checkpoints and model outputs
+checkpoints/
+results/
+outputs/
+
+# UV
+.python-version
+uv.lock
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Linting/Formatting cache
+.ruff_cache/
+
+# Profiling
+*.prof

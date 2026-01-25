@@ -10,6 +10,7 @@ from src.model.data_embedding import SetEncoder
 from src.model.vocab import Vocabulary
 from src.core.training import train_one_epoch
 from src.core.flow_helper import CubicScheduler
+from src.utils.checkpoint import CheckpointManager, TrainingState
 
 
 def parse_args():
@@ -23,6 +24,14 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=10, help="Number of epochs")
     parser.add_argument("--batch-size", type=int, default=2, help="Batch size")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+
+    # Checkpoint
+    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints",
+                        help="Checkpoint save directory")
+    parser.add_argument("--checkpoint-every", type=int, default=50,
+                        help="Save checkpoint every N epochs")
+    parser.add_argument("--resume-from", type=str, default=None,
+                        help="Resume training from checkpoint path")
 
     # Model
     parser.add_argument("--hidden-dim", type=int, default=128, help="Hidden dimension")
@@ -56,6 +65,10 @@ def main():
         print(f"Data file not found: {data_path}")
         print("Please generate the data first")
         return
+
+    # 检查点目录
+    checkpoint_dir = Path(args.checkpoint_dir)
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     # 设备
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -110,10 +123,48 @@ def main():
     optimizer = torch.optim.Adam(all_params, lr=args.lr)
     scheduler = CubicScheduler(a=args.scheduler_a, b=args.scheduler_b)
 
+    # 从检查点恢复
+    if args.resume_from:
+        print(f"Resuming from checkpoint: {args.resume_from}")
+        training_state = CheckpointManager.load_checkpoint(
+            args.resume_from, model, data_encoder, optimizer, device
+        )
+        start_epoch = training_state.epoch + 1
+        print(f"Resumed from epoch {training_state.epoch}, best_loss: {training_state.best_loss:.4f}")
+    else:
+        training_state = TrainingState(epoch=0, global_step=0, best_loss=float('inf'))
+        start_epoch = 0
+
     # Train
-    for epoch in range(args.epochs):
+    for epoch in range(start_epoch, args.epochs):
         print(f"\n--- Epoch {epoch + 1}/{args.epochs} ---")
-        train_one_epoch(model, data_loader, optimizer, scheduler, device, vocab, data_encoder)
+        avg_loss = train_one_epoch(model, data_loader, optimizer, scheduler, device, vocab, data_encoder)
+        print(f"Average loss: {avg_loss:.4f}")
+
+        training_state.global_step += len(data_loader)
+        training_state.epoch = epoch
+
+        # 更新最佳损失并保存最佳模型
+        if avg_loss < training_state.best_loss:
+            training_state.best_loss = avg_loss
+            print(f"New best loss: {training_state.best_loss:.4f}")
+            CheckpointManager.save_model_only(
+                checkpoint_dir / "best_model", model, data_encoder, vocab
+            )
+
+        # 定期保存检查点
+        if (epoch + 1) % args.checkpoint_every == 0:
+            ckpt_path = checkpoint_dir / f"checkpoint-epoch-{epoch+1}"
+            CheckpointManager.save_checkpoint(
+                ckpt_path, model, data_encoder, optimizer, vocab, training_state
+            )
+            print(f"Checkpoint saved to {ckpt_path}")
+
+    # 训练结束后保存最终模型
+    CheckpointManager.save_model_only(
+        checkpoint_dir / "final_model", model, data_encoder, vocab
+    )
+    print(f"\nFinal model saved to {checkpoint_dir / 'final_model'}")
 
 
 if __name__ == "__main__":
