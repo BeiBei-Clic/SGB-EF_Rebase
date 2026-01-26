@@ -10,6 +10,7 @@
 - x1_token_ids: (num_samples, seq_len) 非对齐的target序列（无gap token）
 """
 
+import argparse
 import numpy as np
 from typing import List, Tuple
 from data_generator.expression_generator import generate_expression_sample, expression_to_tokens
@@ -61,10 +62,8 @@ def generate_dataset(
 
     # ========== 操作 3: 生成样本循环 ==========
     samples_collected = 0
-    max_attempts = num_samples * 10
 
-    while samples_collected < num_samples and max_attempts > 0:
-        max_attempts -= 1
+    while samples_collected < num_samples:
 
         # 3.1 生成表达式、采样点并计算目标值
         result = generate_expression_sample(
@@ -79,16 +78,22 @@ def generate_dataset(
         if result is False:
             continue
 
-        expr, x_i, y_i = result
+        base_expr, target_expr, x_i, y_i = result
 
         # 3.2 将表达式转换为 token 序列
-        tokens = expression_to_tokens(expr)
+        base_tokens = expression_to_tokens(base_expr)
+        target_tokens = expression_to_tokens(target_expr)
 
         # 3.3 将 token 字符串转换为 token ids
-        target_token_ids = vocab.encode(tokens)
+        base_token_ids = vocab.encode(base_tokens)
+        target_token_ids = vocab.encode(target_tokens)
 
         # 3.4 创建编辑路径（生成 z0, z1, x0, x1）
-        z0_ids, z1_ids, x0_ids, x1_ids = create_edit_path(target_token_ids, vocab=vocab)
+        z0_ids, z1_ids, x0_ids, x1_ids = create_edit_path(
+            target_token_ids,
+            base_token_ids=base_token_ids,
+            vocab=vocab,
+        )
 
         # 3.5 收集当前样本数据
         input_dimensions_list.append(num_variables)
@@ -140,3 +145,27 @@ def generate_dataset(
     }
 
     return data
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="生成符号回归数据集")
+    parser.add_argument("--num-samples", type=int, default=1000, help="生成样本数量")
+    parser.add_argument("--n-points", type=int, default=100, help="每个样本的采样点数量")
+    parser.add_argument("--x-min", type=float, default=-10, help="采样范围最小值")
+    parser.add_argument("--x-max", type=float, default=10, help="采样范围最大值")
+    parser.add_argument("--num-variables", type=int, default=3, help="变量数量")
+    parser.add_argument("--max-depth", type=int, default=3, help="表达式最大深度")
+    parser.add_argument("--output", type=str, default="data/train_data.npz", help="输出文件路径")
+
+    args = parser.parse_args()
+
+    data = generate_dataset(
+        num_samples=args.num_samples,
+        n_points=args.n_points,
+        x_range=(args.x_min, args.x_max),
+        num_variables=args.num_variables,
+        max_depth=args.max_depth,
+    )
+
+    save_dataset(args.output, data)
+    print(f"已生成数据集，样本数: {len(data['input_dimensions'])}，保存至: {args.output}")

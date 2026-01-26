@@ -137,6 +137,11 @@ def evaluate_expression(
         if atom in (sp.zoo, sp.nan, sp.oo, sp.S.NegativeInfinity):
             return False
 
+    # 检测 AccumulationBounds（使用类型检查）
+    from sympy.calculus.accumulationbounds import AccumulationBounds
+    if any(isinstance(sub_expr, AccumulationBounds) for sub_expr in sp.postorder_traversal(expr)):
+        return False
+
     _, num_variables = x_values.shape
 
     # 创建符号变量
@@ -145,8 +150,9 @@ def evaluate_expression(
     # 将表达式转换为可调用函数
     f = sp.lambdify(symbols, expr, 'numpy')
 
-    # 计算目标值（保留复数用于检测）
-    y_target = f(*[x_values[:, i] for i in range(num_variables)])
+    # 计算目标值（抑制数学运算警告，出现 NaN/Inf 会返回 False）
+    with np.errstate(invalid='ignore', divide='ignore', over='ignore'):
+        y_target = f(*[x_values[:, i] for i in range(num_variables)])
 
     # 检测复数（在转换前）
     if np.iscomplexobj(y_target):
@@ -175,11 +181,11 @@ def generate_expression_sample(
     x_range: Tuple[float, float] = (-10, 10),
     vocab: Vocabulary = None,
     rng: np.random.Generator = None,
-) -> Union[Tuple[sp.Expr, np.ndarray, np.ndarray], bool]:
-    """生成表达式、采样点并计算目标值.
+) -> Union[Tuple[sp.Expr, sp.Expr, np.ndarray, np.ndarray], bool]:
+    """生成 base 表达式、target 表达式、采样点并计算目标值.
 
     Returns:
-        (expr, x_values, y_target): 成功时返回三元组
+        (base_expr, target_expr, x_values, y_target): 成功时返回四元组
         False: 失败时返回 False
     """
     if vocab is None:
@@ -188,19 +194,30 @@ def generate_expression_sample(
     if rng is None:
         rng = np.random.default_rng()
 
-    # 1. 生成随机表达式
-    expr = generate_expression(num_variables, max_depth, vocab, rng)
+    # 1. 生成 target 表达式
+    target_expr = generate_expression(num_variables, max_depth, vocab, rng)
 
-    # 2. 采样输入点
+    # 2. 生成 base 表达式（target 的简化版本）
+    simplify_ratio = rng.uniform(0.3, 0.7)
+    base_expr = simplify_sympy_expr(target_expr, rng, simplify_ratio)
+
+    # 3. 采样输入点
     x_values = sample_points(n_points, x_range, num_variables, rng)
 
-    # 3. 计算表达式在采样点的值
-    y_target = evaluate_expression(expr, x_values)
+    # 4. 计算 target 表达式在采样点的值
+    y_target = evaluate_expression(target_expr, x_values)
 
     if y_target is False:
         return False
 
-    return expr, x_values, y_target
+    # 5. 验证 base_expr 的 tokens 是否在词表中
+    base_tokens = expression_to_tokens(base_expr)
+    try:
+        [vocab.token_to_id(token) for token in base_tokens]
+    except KeyError:
+        return False
+
+    return base_expr, target_expr, x_values, y_target
 
 
 def expression_to_tokens(expr: sp.Expr) -> List[str]:
@@ -219,6 +236,8 @@ def expression_to_tokens(expr: sp.Expr) -> List[str]:
             if isinstance(node, sp.Symbol):
                 tokens.append(str(node))
             elif isinstance(node, sp.Number):
+                tokens.append('constant')
+            elif node in (sp.pi, sp.E, sp.GoldenRatio):
                 tokens.append('constant')
             else:
                 tokens.append(str(node))
@@ -260,3 +279,52 @@ def expression_to_tokens(expr: sp.Expr) -> List[str]:
 
     _preorder(expr)
     return tokens
+
+
+def simplify_sympy_expr(expr: sp.Expr, rng: np.random.Generator, simplify_ratio: float = 0.5) -> sp.Expr:
+    """简化 SymPy 表达式
+
+    策略：随机选择非叶子子表达式，用其子表达式之一替换
+    """
+    if expr.is_Atom:
+        return expr
+
+    # 收集可简化的子表达式
+    candidates = []
+    for sub_expr in sp.postorder_traversal(expr):
+        if sub_expr == expr:
+            continue
+        if not sub_expr.is_Atom and len(sub_expr.args) > 1:
+            candidates.append(sub_expr)
+
+    if not candidates:
+        return expr
+
+    # 随机选择要简化的节点
+    num_to_simplify = max(1, int(len(candidates) * simplify_ratio))
+    nodes_to_simplify = rng.choice(candidates, size=min(num_to_simplify, len(candidates)), replace=False)
+
+    simplified = expr
+    for node in nodes_to_simplify:
+        # 用随机子节点替换当前节点
+        replacement = rng.choice(list(node.args))
+        try:
+            simplified = simplified.subs(node, replacement)
+
+            # 检查是否引入了虚数单位
+            if sp.I in simplified.atoms():
+                # 恢复为未简化的表达式
+                simplified = expr
+                break
+
+            # 检查是否产生了 AccumulationBounds 或其他无效类型
+            for atom in simplified.atoms():
+                atom_type = type(atom).__name__
+                if atom_type == 'AccumulationBounds':
+                    simplified = expr
+                    break
+        except (ValueError, TypeError):
+            simplified = expr
+            break
+
+    return simplified
