@@ -3,6 +3,7 @@
 Based on edit-flows-demo/main.py structure, adapted for symbolic regression.
 """
 
+import pysnooper
 import torch
 
 from src.data_loader.data_loader import SRDataLoader
@@ -19,6 +20,11 @@ from .flow_helper import (
 )
 
 
+@pysnooper.snoop('logs/debug_training.log', watch=[
+    'loss.item()',
+    'torch.isnan(x_t).any()',
+    'torch.isnan(t).any()',
+])
 def train_one_epoch(
     model: EditFlowsTransformer,
     data_loader: SRDataLoader,
@@ -84,8 +90,14 @@ def train_one_epoch(
         ux_cat = torch.cat([u_tia_ins, u_tia_sub, u_tia_del], dim=-1)
         uz_cat = fill_gap_tokens_with_repeats(ux_cat, z_gap_mask, z_pad_mask)
 
-        sched_coeff = (scheduler.derivative(t) / (1 - scheduler(t))).to(device)
-        log_uz_cat = torch.clamp(uz_cat.log(), min=-20)
+        # 数值稳定性修复：防止 t 接近 1 时除以零导致溢出
+        kappa_t = scheduler(t)
+        denom = (1 - kappa_t).clamp(min=1e-6)
+        sched_coeff = (scheduler.derivative(t) / denom).to(device)
+        sched_coeff = sched_coeff.clamp(max=50.0)
+
+        uz_cat_safe = uz_cat.clamp(min=1e-8)
+        log_uz_cat = uz_cat_safe.log().clamp(min=-20, max=20)
         u_tot = u_t.sum(dim=(1, 2))
         loss = u_tot - (log_uz_cat * uz_mask.to(device) * sched_coeff.unsqueeze(-1)).sum(dim=(1, 2))
         loss = loss.mean()

@@ -3,6 +3,7 @@
 import argparse
 import torch
 from pathlib import Path
+import pysnooper
 
 from src.data_loader.data_loader import SRDataLoader
 from src.model.EditFlowsTransformer import EditFlowsTransformer
@@ -12,6 +13,9 @@ from src.core.training import train_one_epoch
 from src.core.flow_helper import CubicScheduler
 from src.utils.checkpoint import CheckpointManager, TrainingState
 from src.utils.lr_scheduler import create_warmup_cosine_scheduler
+
+# 在装饰器生效前创建日志目录
+Path("logs").mkdir(parents=True, exist_ok=True)
 
 
 def parse_args():
@@ -23,7 +27,7 @@ def parse_args():
 
     # Training
     parser.add_argument("--epochs", type=int, default=10, help="Number of epochs")
-    parser.add_argument("--batch-size", type=int, default=2, help="Batch size")
+    parser.add_argument("--batch-size", type=int, default=128, help="Batch size")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
     parser.add_argument("--warmup-epochs", type=int, default=2, help="Number of warmup epochs")
     parser.add_argument("--min-lr", type=float, default=1e-6, help="Minimum learning rate")
@@ -55,6 +59,7 @@ def parse_args():
     return parser.parse_args()
 
 
+@pysnooper.snoop('logs/debug.log')
 def main():
     args = parse_args()
 
