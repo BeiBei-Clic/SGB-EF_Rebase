@@ -60,9 +60,6 @@ def main():
 
     # Setup
     data_path = Path(args.data_path)
-    if not data_path.exists():
-        data_path = Path("data/test_sample.npz")
-        print(f"Training data not found, using test data: {data_path}")
 
     if not data_path.exists():
         print(f"Data file not found: {data_path}")

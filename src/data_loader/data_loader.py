@@ -32,7 +32,7 @@ class SymbolicRegressionDataset(Dataset):
         return {
             'input_dimension': int(self.data['input_dimensions'][idx]),
             'x_values': torch.from_numpy(self.data['x_values'][idx]).float(),
-            'y_target': torch.from_numpy(self.data['y_target'][idx]),
+            'y_target': torch.from_numpy(self.data['y_target'][idx]).float(),
             'z0_token_ids': torch.from_numpy(self.data['z0_token_ids'][idx]).long(),
             'z1_token_ids': torch.from_numpy(self.data['z1_token_ids'][idx]).long(),
             'x0_token_ids': torch.from_numpy(self.data['x0_token_ids'][idx]).long(),
@@ -67,36 +67,44 @@ def make_batch(
     y_target_list = []
 
     for sample in samples:
-        # Process z0_token_ids: [BOS, token1, token2, ..., padding]
+        # Process z0_token_ids
         z0_ids = sample['z0_token_ids']
         pad_mask = z0_ids != PAD_TOKEN_ID
         if pad_mask.any():
             actual_len = pad_mask.nonzero(as_tuple=False)[-1].item() + 1
             z0_ids = z0_ids[:actual_len]
+        if len(z0_ids) > 0 and z0_ids[0] != BOS_TOKEN_ID:
+            z0_ids = F.pad(z0_ids, (1, 0), value=BOS_TOKEN_ID)
         z0_ids_list.append(z0_ids)
 
-        # Process z1_token_ids: [BOS, token1, token2, ..., padding]
+        # Process z1_token_ids
         z1_ids = sample['z1_token_ids']
         pad_mask = z1_ids != PAD_TOKEN_ID
         if pad_mask.any():
             actual_len = pad_mask.nonzero(as_tuple=False)[-1].item() + 1
             z1_ids = z1_ids[:actual_len]
+        if len(z1_ids) > 0 and z1_ids[0] != BOS_TOKEN_ID:
+            z1_ids = F.pad(z1_ids, (1, 0), value=BOS_TOKEN_ID)
         z1_ids_list.append(z1_ids)
 
-        # Process x0_token_ids: [BOS, token1, token2, ..., padding] (no GAP tokens)
+        # Process x0_token_ids (no GAP tokens)
         x0_ids = sample['x0_token_ids']
         pad_mask = x0_ids != PAD_TOKEN_ID
         if pad_mask.any():
             actual_len = pad_mask.nonzero(as_tuple=False)[-1].item() + 1
             x0_ids = x0_ids[:actual_len]
+        if len(x0_ids) > 0 and x0_ids[0] != BOS_TOKEN_ID:
+            x0_ids = F.pad(x0_ids, (1, 0), value=BOS_TOKEN_ID)
         x0_ids_list.append(x0_ids)
 
-        # Process x1_token_ids: [BOS, token1, token2, ..., padding] (no GAP tokens)
+        # Process x1_token_ids (no GAP tokens)
         x1_ids = sample['x1_token_ids']
         pad_mask = x1_ids != PAD_TOKEN_ID
         if pad_mask.any():
             actual_len = pad_mask.nonzero(as_tuple=False)[-1].item() + 1
             x1_ids = x1_ids[:actual_len]
+        if len(x1_ids) > 0 and x1_ids[0] != BOS_TOKEN_ID:
+            x1_ids = F.pad(x1_ids, (1, 0), value=BOS_TOKEN_ID)
         x1_ids_list.append(x1_ids)
 
         x_values_list.append(sample['x_values'])

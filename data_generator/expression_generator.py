@@ -168,7 +168,7 @@ def evaluate_expression(
         return False
 
     # 检测绝对值过大（> 100）
-    if np.any(np.abs(y_target) > 100):
+    if np.any(np.abs(y_target) > 10):
         return False
 
     return y_target
