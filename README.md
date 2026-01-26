@@ -6,4 +6,6 @@ uv run python inference.py --sample-idx 0 --n-steps 500
 
 watch -n 1 nvidia-smi
 
-uv run python -m data_generator.view_data --path data/train_data.npz --num-samples 5
+uv run python -m data_generator.view_data --path data/train_data.npz --num-samples 100
+
+uv run python -m data_generator.data_generator --num-samples 100

@@ -37,11 +37,14 @@ def view_dataset(path: str, num_samples: int = 3):
         print(f"\n--- 样本 {i} ---")
 
         # 显示 token 序列
-        for name in ['x0_token_ids', 'x1_token_ids']:
+        for name in ['x0_token_ids', 'x1_token_ids', 'z0_token_ids', 'z1_token_ids']:
             ids = data[name][i]
             valid_ids = ids[ids != vocab.pad_token]
             tokens = [vocab.id_to_token(int(id)) for id in valid_ids]
-            print(f"{name:15}: {' '.join(tokens)}")
+            ids_str = ' '.join(str(int(id)) for id in valid_ids)
+            tokens_str = ' '.join(tokens)
+            print(f"{name:15}: {tokens_str}")
+            print(f"{name:15} ids: {ids_str}")
 
         # 显示采样点和目标值（前 5 个点）
         print(f"x_values (前5点): {data['x_values'][i, :5].tolist()}")

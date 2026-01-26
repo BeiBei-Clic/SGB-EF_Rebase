@@ -13,7 +13,7 @@
 import argparse
 import numpy as np
 from typing import List, Tuple
-from data_generator.expression_generator import generate_expression_sample, expression_to_tokens
+from data_generator.expression_generator import generate_expression_sample, expression_to_tokens, evaluate_expression
 from data_generator.edit_path import create_edit_path
 from src.model.vocab import Vocabulary
 
@@ -106,6 +106,27 @@ def generate_dataset(
 
         samples_collected += 1
 
+        # 3.6 如果删减成功（x0 < x1），生成反向样本
+        if len(x0_ids) < len(x1_ids) and samples_collected < num_samples:
+            # 调换 x0, x1 和 z0, z1
+            x0_ids, x1_ids = x1_ids, x0_ids
+            z0_ids, z1_ids = z1_ids, z0_ids
+
+            # 使用 base_expr 重新计算 y 值
+            y_base = evaluate_expression(base_expr, x_i)
+
+            if y_base is not False:
+                # 收集反向样本数据
+                input_dimensions_list.append(num_variables)
+                x_values_list.append(x_i)
+                y_target_list.append(y_base)
+                z0_token_ids_list.append(np.array(z0_ids, dtype=np.int64))
+                z1_token_ids_list.append(np.array(z1_ids, dtype=np.int64))
+                x0_token_ids_list.append(np.array(x0_ids, dtype=np.int64))
+                x1_token_ids_list.append(np.array(x1_ids, dtype=np.int64))
+
+                samples_collected += 1
+
     # ========== 操作 4: 堆叠数组并转换为 numpy 格式 ==========
     input_dimensions = np.array(input_dimensions_list, dtype=np.int32)
     x_values = np.stack(x_values_list, axis=0)
@@ -155,9 +176,13 @@ if __name__ == "__main__":
     parser.add_argument("--x-max", type=float, default=10, help="采样范围最大值")
     parser.add_argument("--num-variables", type=int, default=3, help="变量数量")
     parser.add_argument("--max-depth", type=int, default=3, help="表达式最大深度")
-    parser.add_argument("--output", type=str, default="data/train_data.npz", help="输出文件路径")
+    parser.add_argument("--output", type=str, default=None, help="输出文件路径（默认: data/data_{num_samples}_{num_variables}v.npz）")
 
     args = parser.parse_args()
+
+    # 默认输出文件名格式: data/data_{num_samples}_{num_variables}v.npz
+    if args.output is None:
+        args.output = f"data/data_{args.num_samples}_{args.num_variables}v.npz"
 
     data = generate_dataset(
         num_samples=args.num_samples,
