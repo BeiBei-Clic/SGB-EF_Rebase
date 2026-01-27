@@ -24,7 +24,7 @@ uv run python train.py --epochs 1000 --lr 1e-4 --checkpoint-every 500 --data-pat
 
 ```bash
 # 单样本推理
-uv run python inference.py --sample-idx 0 --n-steps 500
+uv run python inference.py --sample-idx 0 --n-steps 500 --data-path data/data_10_3v.npz
 ```
 
 ### 数据查看

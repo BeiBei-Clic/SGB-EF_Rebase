@@ -133,14 +133,16 @@ def load_test_sample(npz_path: str, sample_idx: int, device: torch.device) -> Tu
         x_values: 输入特征 (n_points, 3)
         y_target: 目标值 (n_points,)
         x0_token_ids: 初始 token 序列
+        x1_token_ids: 目标 token 序列
     """
     data = np.load(npz_path, allow_pickle=True)
 
     x_values = torch.from_numpy(data['x_values'][sample_idx]).float().to(device)
     y_target = torch.from_numpy(data['y_target'][sample_idx]).float().to(device)
     x0_token_ids = torch.from_numpy(data['x0_token_ids'][sample_idx]).long().to(device)
+    x1_token_ids = torch.from_numpy(data['x1_token_ids'][sample_idx]).long().to(device)
 
-    return x_values, y_target, x0_token_ids
+    return x_values, y_target, x0_token_ids, x1_token_ids
 
 
 def edit_flow_sampling(
@@ -331,11 +333,17 @@ def main():
 
     # 加载数据
     print(f"\n加载数据 (样本 {args.sample_idx})...")
-    x_values, y_target, x0_token_ids = load_test_sample(args.data_path, args.sample_idx, device)
+    x_values, y_target, x0_token_ids, x1_token_ids = load_test_sample(args.data_path, args.sample_idx, device)
     print(f"  x_values shape: {x_values.shape}")
     print(f"  y_target shape: {y_target.shape}")
-    print(f"  初始序列长度: {len(x0_token_ids)}")
+
+    # 解码并打印初始表达式和目标表达式
+    initial_expr = decode_sequence_to_expr(x0_token_ids, vocab)
+    target_expr = decode_sequence_to_expr(x1_token_ids, vocab)
+    print(f"  初始表达式: {initial_expr}")
+    print(f"  目标表达式: {target_expr}")
     print(f"  初始序列: {x0_token_ids.tolist()}")
+    print(f"  目标序列: {x1_token_ids.tolist()}")
 
     # 创建调度器
     scheduler = CubicScheduler(a=2.0, b=0.5)
@@ -357,18 +365,20 @@ def main():
     # 解码结果
     print("\n=== 采样结果 ===")
     final_expr = decode_sequence_to_expr(final_sequence, vocab)
-    print(f"最终序列长度: {len(final_sequence)}")
+    print(f"最终表达式: {final_expr}")
     print(f"最终序列: {final_sequence.tolist()}")
-    print(f"表达式: {final_expr}")
 
     # 保存结果
     output_file = output_dir / f"sample_{args.sample_idx}_result.txt"
     with open(output_file, "w") as f:
         f.write(f"Sample Index: {args.sample_idx}\n")
-        f.write(f"Initial Sequence: {x0_token_ids.tolist()}\n")
+        f.write(f"Initial Expression: {initial_expr}\n")
+        f.write(f"Target Expression: {target_expr}\n")
+        f.write(f"Final Expression: {final_expr}\n")
+        f.write(f"\nInitial Sequence: {x0_token_ids.tolist()}\n")
+        f.write(f"Target Sequence: {x1_token_ids.tolist()}\n")
         f.write(f"Final Sequence: {final_sequence.tolist()}\n")
         f.write(f"Final Sequence Length: {len(final_sequence)}\n")
-        f.write(f"Expression: {final_expr}\n")
     print(f"\n结果已保存到: {output_file}")
 
 
