@@ -29,7 +29,7 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=10, help="Number of epochs")
     parser.add_argument("--batch-size", type=int, default=128, help="Batch size")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
-    parser.add_argument("--warmup-epochs", type=int, default=2, help="Number of warmup epochs")
+    parser.add_argument("--warmup-epochs", type=int, default=10, help="Number of warmup epochs")
     parser.add_argument("--min-lr", type=float, default=1e-6, help="Minimum learning rate")
 
     # Checkpoint
@@ -41,16 +41,16 @@ def parse_args():
                         help="Resume training from checkpoint path")
 
     # Model
-    parser.add_argument("--hidden-dim", type=int, default=128, help="Hidden dimension")
-    parser.add_argument("--num-layers", type=int, default=2, help="Number of transformer layers")
-    parser.add_argument("--num-heads", type=int, default=4, help="Number of attention heads")
-    parser.add_argument("--max-seq-len", type=int, default=256, help="Maximum sequence length")
+    parser.add_argument("--hidden-dim", type=int, default=768, help="Hidden dimension")
+    parser.add_argument("--num-layers", type=int, default=12, help="Number of transformer layers")
+    parser.add_argument("--num-heads", type=int, default=12, help="Number of attention heads")
+    parser.add_argument("--max-seq-len", type=int, default=48, help="Maximum sequence length")
 
     # Encoder
-    parser.add_argument("--encoder-hidden", type=int, default=128, help="Encoder hidden dimension")
-    parser.add_argument("--encoder-heads", type=int, default=4, help="Encoder attention heads")
-    parser.add_argument("--encoder-layers", type=int, default=2, help="Number of encoder layers")
-    parser.add_argument("--encoder-inds", type=int, default=32, help="Number of inducing points")
+    parser.add_argument("--encoder-hidden", type=int, default=768, help="Encoder hidden dimension")
+    parser.add_argument("--encoder-heads", type=int, default=12, help="Encoder attention heads")
+    parser.add_argument("--encoder-layers", type=int, default=8, help="Number of encoder layers")
+    parser.add_argument("--encoder-inds", type=int, default=64, help="Number of inducing points")
 
     # Scheduler
     parser.add_argument("--scheduler-a", type=float, default=1.0, help="Scheduler parameter a")
