@@ -10,6 +10,7 @@ from typing import Tuple
 import numpy as np
 import torch
 import torch.nn.functional as F
+import pysnooper
 
 from src.model.EditFlowsTransformer import EditFlowsTransformer
 from src.model.data_embedding import SetEncoder, prepare_encoder_input
@@ -144,7 +145,7 @@ def load_test_sample(npz_path: str, sample_idx: int, device: torch.device) -> Tu
 
     return x_values, y_target, x0_token_ids, x1_token_ids
 
-
+@pysnooper.snoop('logs/inference.log')
 def edit_flow_sampling(
     model: EditFlowsTransformer,
     data_encoder: SetEncoder,

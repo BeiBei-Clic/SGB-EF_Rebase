@@ -170,18 +170,6 @@ class EditFlowsTransformer(nn.Module):
             elif isinstance(module, nn.Embedding):
                 torch.nn.init.normal_(module.weight, std=0.02)
 
-    @pysnooper.snoop('logs/debug.log', watch=[
-        'torch.isnan(x).any()',
-        'torch.isnan(ins_logits).any()',
-        'torch.isnan(sub_logits).any()',
-        'torch.isnan(rates).any()',
-        'torch.isnan(ins_probs).any()',
-        'torch.isnan(sub_probs).any()',
-        'x.min()',
-        'x.max()',
-        'ins_logits.min()',
-        'ins_logits.max()',
-    ])
     def forward(self, tokens: torch.Tensor,  # (batch, x_seq_len)
                 time_step: torch.Tensor,  # (batch, 1)
                 padding_mask: torch.Tensor,  # (batch, x_seq_len)
