@@ -21,7 +21,7 @@ from src.core.flow_helper import CubicScheduler
 def get_adaptive_h(default_h: float, t: torch.Tensor, scheduler: CubicScheduler) -> torch.Tensor:
     """计算自适应时间步长。
 
-    根据当前时间步和调度器动态调整步长，避免在 kappa(t) 接近 1 时步长过大。
+    根据调度器公式精确计算，确保时间步长不会导致 t 超过 1。
 
     Args:
         default_h: 默认步长
@@ -31,95 +31,94 @@ def get_adaptive_h(default_h: float, t: torch.Tensor, scheduler: CubicScheduler)
     Returns:
         adapt_h: 自适应步长 (batch_size, 1)
     """
-    kappa_t = scheduler(t)
-    # 只在 kappa(t) 非常接近 1 时才减小步长
-    adapt_h = torch.where(
-        kappa_t > 0.99,
-        default_h * 0.5,
-        default_h
-    )
-    # 同时确保最后一步不会超过 1
-    adapt_h = torch.minimum(adapt_h, 1 - t)
-    return adapt_h
+    # 基于调度器公式计算理论上界
+    coeff = (1 - scheduler(t)) / scheduler.derivative(t)
+    _h = default_h * torch.ones_like(t)
+    h_adapt = torch.minimum(_h, coeff)
+    return h_adapt
 
 
 def apply_ins_del_operations(
     x_t: torch.Tensor,
     ins_mask: torch.Tensor,
     del_mask: torch.Tensor,
-    sub_mask: torch.Tensor,
-    ins_probs: torch.Tensor,
-    sub_probs: torch.Tensor,
+    ins_tokens: torch.Tensor,
     pad_token_id: int,
-) -> Tuple[torch.Tensor, int, int, int]:
-    """应用插入、删除、替换操作到序列。
+    max_seq_len: int = 512,
+) -> Tuple[torch.Tensor, int, int]:
+    """应用插入、删除操作到序列。
 
-    正确处理所有编辑操作类型，使用模型预测的 token。
+    正确处理插入和删除操作，包括同时插入+删除的情况（作为替换）。
 
     Args:
         x_t: 当前序列 (batch_size, seq_len)
         ins_mask: 插入掩码 (batch_size, seq_len)
         del_mask: 删除掩码 (batch_size, seq_len)
-        sub_mask: 替换掩码 (batch_size, seq_len)
-        ins_probs: 插入 token 概率分布 (batch_size, seq_len, vocab_size)
-        sub_probs: 替换 token 概率分布 (batch_size, seq_len, vocab_size)
+        ins_tokens: 插入的 token (batch_size, seq_len)
         pad_token_id: 填充 token ID
+        max_seq_len: 最大序列长度
 
     Returns:
         new_x_t: 操作后的序列
         n_ins: 插入操作数量
         n_del: 删除操作数量
-        n_sub: 替换操作数量
     """
     batch_size, seq_len = x_t.shape
     device = x_t.device
 
-    new_sequences = []
-    total_ins, total_del, total_sub = 0, 0, 0
+    # 处理同时插入+删除的情况 -> 替换
+    replace_mask = ins_mask & del_mask
+    x_t_modified = x_t.clone()
+    n_replace = replace_mask.sum().item()
+    if n_replace > 0:
+        x_t_modified[replace_mask] = ins_tokens[replace_mask]
 
-    for b in range(batch_size):
-        seq = x_t[b].clone()
+    # 更新 mask，排除已处理的替换
+    eff_ins_mask = ins_mask & ~replace_mask
+    eff_del_mask = del_mask & ~replace_mask
 
-        # 找到非 pad token 的位置
-        non_pad_indices = (seq != pad_token_id).nonzero(as_tuple=True)[0]
-        actual_len = len(non_pad_indices) if len(non_pad_indices) > 0 else 0
+    # 计算新序列长度
+    xt_pad_mask = (x_t == pad_token_id)
+    xt_seq_lens = (~xt_pad_mask).sum(dim=1)
+    new_lengths = xt_seq_lens + eff_ins_mask.sum(dim=1) - eff_del_mask.sum(dim=1)
+    max_new_len = int(new_lengths.max().item())
 
-        if actual_len == 0:
-            new_sequences.append(seq)
-            continue
+    if max_new_len <= 0:
+        return (
+            torch.full((batch_size, 1), pad_token_id, dtype=x_t.dtype, device=device),
+            eff_ins_mask.sum().item(),
+            eff_del_mask.sum().item(),
+        )
 
-        # 处理删除操作（优先处理）
-        batch_del_mask = del_mask[b, :actual_len]
-        del_positions = batch_del_mask.nonzero(as_tuple=True)[0]
-        for pos in del_positions:
-            seq[pos] = pad_token_id
-            total_del += 1
+    # 预分配结果
+    x_new = torch.full((batch_size, max_new_len), pad_token_id, dtype=x_t.dtype, device=device)
 
-        # 处理替换操作
-        batch_sub_mask = sub_mask[b, :actual_len]
-        sub_positions = batch_sub_mask.nonzero(as_tuple=True)[0]
-        for i, pos in enumerate(sub_positions):
-            # 从概率分布采样 token
-            probs = sub_probs[b, pos]
-            token = torch.multinomial(probs, 1).item()
-            seq[pos] = token
-            total_sub += 1
+    # 计算位置映射
+    batch_idx = torch.arange(batch_size, device=device).unsqueeze(1)
+    pos_idx = torch.arange(seq_len, device=device).unsqueeze(0)
+    cum_del = torch.cumsum(eff_del_mask.float(), dim=1)
+    cum_ins = torch.cumsum(eff_ins_mask.float(), dim=1)
+    cum_ins_before = F.pad(cum_ins[:, :-1], (1, 0), value=0)
 
-        # 处理插入操作
-        batch_ins_mask = ins_mask[b, :actual_len]
-        ins_positions = batch_ins_mask.nonzero(as_tuple=True)[0]
-        for i, pos in enumerate(ins_positions):
-            if actual_len < seq_len:
-                # 从概率分布采样 token
-                probs = ins_probs[b, pos]
-                token = torch.multinomial(probs, 1).item()
-                seq[actual_len] = token
-                actual_len += 1
-                total_ins += 1
+    # 放置未删除的 token
+    new_pos = pos_idx + cum_ins_before - cum_del
+    keep_mask = ~eff_del_mask & (new_pos >= 0) & (new_pos < max_new_len)
+    if keep_mask.any():
+        x_new[batch_idx.expand(-1, seq_len)[keep_mask], new_pos[keep_mask].long()] = x_t_modified[keep_mask]
 
-        new_sequences.append(seq)
+    # 放置插入的 token（在对应位置之后插入）
+    if eff_ins_mask.any():
+        ins_pos = new_pos + 1
+        ins_valid = eff_ins_mask & (ins_pos >= 0) & (ins_pos < max_new_len)
+        if ins_valid.any():
+            x_new[batch_idx.expand(-1, seq_len)[ins_valid], ins_pos[ins_valid].long()] = ins_tokens[ins_valid]
 
-    return torch.stack(new_sequences, dim=0), total_ins, total_del, total_sub
+    # 限制最大长度
+    if max_new_len > max_seq_len:
+        max_new_len = max_seq_len
+        x_new = x_new[:, :max_new_len]
+
+    return x_new, eff_ins_mask.sum().item(), eff_del_mask.sum().item()
 
 
 def load_test_sample(npz_path: str, sample_idx: int, device: torch.device) -> Tuple:
@@ -191,7 +190,7 @@ def edit_flow_sampling(
 
         step = 0
         # 当 t 接近 1 时继续运行，直到达到最大步数
-        while step < n_steps:
+        while step < n_steps and t.max() <= 1 - default_h:
             # 创建 padding mask
             x_pad_mask = (x_t == vocab.pad_token)
 
@@ -238,11 +237,24 @@ def edit_flow_sampling(
                 print(f"  del_mask sum: {del_mask.sum().item()}")
                 print(f"  sub_mask sum: {sub_mask.sum().item()}")
 
-            # 应用操作（内部会从概率分布采样 token）
-            x_t, n_ins, n_del, n_sub = apply_ins_del_operations(
-                x_t, ins_mask, del_mask, sub_mask,
-                ins_probs, sub_probs,
+            # 先采样 token
+            ins_tokens = torch.full_like(x_t, vocab.pad_token, dtype=torch.long)
+            sub_tokens = torch.full_like(x_t, vocab.pad_token, dtype=torch.long)
+
+            if non_pad_mask.any():
+                ins_tokens[non_pad_mask] = torch.multinomial(ins_probs[non_pad_mask], 1).squeeze(-1)
+                sub_tokens[non_pad_mask] = torch.multinomial(sub_probs[non_pad_mask], 1).squeeze(-1)
+
+            # 应用替换操作到原序列
+            n_sub = sub_mask.sum().item()
+            x_t[sub_mask] = sub_tokens[sub_mask]
+
+            # 应用插入/删除操作
+            x_t, n_ins, n_del = apply_ins_del_operations(
+                x_t, ins_mask, del_mask,
+                ins_tokens,
                 vocab.pad_token,
+                max_seq_len=x_t.shape[1] + 64,
             )
 
             # 更新时间
