@@ -61,6 +61,11 @@ def parse_args():
 
 # @pysnooper.snoop('logs/debug.log')
 def main():
+    # 清理并重新创建日志文件
+    log_path = Path("logs/debug.log")
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("")
+
     args = parse_args()
 
     # Setup

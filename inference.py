@@ -298,6 +298,11 @@ def decode_sequence_to_expr(token_ids: torch.Tensor, vocab: Vocabulary) -> str:
 
 def main():
     """命令行入口函数。"""
+    # 清理并重新创建日志文件
+    log_path = Path("logs/inference.log")
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("")
+
     parser = argparse.ArgumentParser(description="Edit Flow 采样推理")
     parser.add_argument("--data-path", type=str, default="data/test_sample.npz",
                         help="测试数据 NPZ 文件路径")

@@ -12,6 +12,12 @@ uv run python src/utils/txt2Npz.py data/flow_samples_10000_3dim_100pts_6depth_12
 
 # 生成训练数据
 uv run python -m data_generator.data_generator --num-samples 1
+
+# 多核（使用全部 CPU）
+python -m data_generator.data_generator --num-samples 10000 --num-workers -1
+
+# 单核（原方式）
+python -m data_generator.data_generator --num-samples 10000 --num-workers 1
 ```
 
 ### 模型训练
