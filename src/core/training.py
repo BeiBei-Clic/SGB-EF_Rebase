@@ -20,7 +20,7 @@ from .flow_helper import (
 )
 
 
-@pysnooper.snoop('logs/debug_training.log', watch=[
+@pysnooper.snoop('logs/debug.log', watch=[
     'loss.item()',
     'torch.isnan(x_t).any()',
     'torch.isnan(t).any()',

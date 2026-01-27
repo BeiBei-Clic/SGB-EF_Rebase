@@ -170,7 +170,7 @@ class EditFlowsTransformer(nn.Module):
             elif isinstance(module, nn.Embedding):
                 torch.nn.init.normal_(module.weight, std=0.02)
 
-    @pysnooper.snoop('logs/debug_forward.log', watch=[
+    @pysnooper.snoop('logs/debug.log', watch=[
         'torch.isnan(x).any()',
         'torch.isnan(ins_logits).any()',
         'torch.isnan(sub_logits).any()',
