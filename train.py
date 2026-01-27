@@ -5,7 +5,7 @@ import torch
 from pathlib import Path
 import pysnooper
 
-from src.data_loader.data_loader import SRDataLoader
+from src.data_loader.data_loader import SRDataLoader, SymbolicRegressionDataset
 from src.model.EditFlowsTransformer import EditFlowsTransformer
 from src.model.data_embedding import SetEncoder
 from src.model.vocab import Vocabulary
@@ -59,7 +59,7 @@ def parse_args():
     return parser.parse_args()
 
 
-@pysnooper.snoop('logs/debug.log')
+# @pysnooper.snoop('logs/debug.log')
 def main():
     args = parse_args()
 
@@ -79,15 +79,9 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    # 数据加载
-    data_loader = SRDataLoader(str(data_path), batch_size=args.batch_size, shuffle=True, device=device)
-    print(f"Dataset size: {len(data_loader.dataset)}")
-    print(f"Number of batches: {len(data_loader)}")
-
-    # 获取 input_dim
-    first_batch = next(iter(data_loader))
-    _, _, _, _, _, x_values, _ = first_batch
-    input_dim = x_values.shape[-1]
+    # 获取 input_dim（直接从 dataset 读取）
+    dataset = SymbolicRegressionDataset(str(data_path), shuffle=False)
+    input_dim = dataset[0]['input_dimension']
     print(f"Input dimension: {input_dim}")
 
     # Vocab
@@ -96,6 +90,11 @@ def main():
     print(f"Gap token ID: {vocab.gap_token}")
     print(f"Pad token ID: {vocab.pad_token}")
     print(f"BOS token ID: {vocab.token_to_id('<s>')}")
+
+    # 数据加载（使用 vocab）
+    data_loader = SRDataLoader(str(data_path), batch_size=args.batch_size, shuffle=True, device=device, vocab=vocab)
+    print(f"Dataset size: {len(data_loader.dataset)}")
+    print(f"Number of batches: {len(data_loader)}")
 
     # Encoder
     data_encoder = SetEncoder(

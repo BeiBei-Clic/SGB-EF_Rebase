@@ -20,11 +20,9 @@ from .flow_helper import (
 )
 
 
-@pysnooper.snoop('logs/debug.log', watch=[
-    'loss.item()',
-    'torch.isnan(x_t).any()',
-    'torch.isnan(t).any()',
-])
+@pysnooper.snoop('logs/debug.log', 
+watch=['z_0', 'z_1','uz_mask', 'u_t','uz_cat']
+)
 def train_one_epoch(
     model: EditFlowsTransformer,
     data_loader: SRDataLoader,

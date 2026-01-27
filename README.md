@@ -31,7 +31,7 @@ uv run python inference.py --sample-idx 0 --n-steps 500 --data-path data/data_10
 
 ```bash
 # 查看数据集内容
-uv run python -m data_generator.view_data --path data/data_100_3v.npz --num-samples 100
+uv run python -m data_generator.view_data --path data/data_10_3v.npz --num-samples 10
 ```
 
 ### 测试与调试

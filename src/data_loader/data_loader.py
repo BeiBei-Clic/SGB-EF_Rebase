@@ -1,18 +1,11 @@
 """Data loader for symbolic regression with Edit Flows."""
 
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
-
-
-# Special token IDs based on data format analysis
-# These are derived from the actual data files
-GAP_TOKEN_ID = 0   # Gap token for alignment
-PAD_TOKEN_ID = 4   # Padding token
-BOS_TOKEN_ID = 2   # Beginning of sequence (used as length prefix in data)
 
 
 class SymbolicRegressionDataset(Dataset):
@@ -43,6 +36,7 @@ class SymbolicRegressionDataset(Dataset):
 def make_batch(
     dataset: SymbolicRegressionDataset,
     indices: List[int],
+    vocab,
     device: torch.device = torch.device('cpu'),
 ) -> tuple:
     """Create a training batch from dataset indices.
@@ -69,42 +63,42 @@ def make_batch(
     for sample in samples:
         # Process z0_token_ids
         z0_ids = sample['z0_token_ids']
-        pad_mask = z0_ids != PAD_TOKEN_ID
+        pad_mask = z0_ids != vocab.pad_token
         if pad_mask.any():
             actual_len = pad_mask.nonzero(as_tuple=False)[-1].item() + 1
             z0_ids = z0_ids[:actual_len]
-        if len(z0_ids) > 0 and z0_ids[0] != BOS_TOKEN_ID:
-            z0_ids = F.pad(z0_ids, (1, 0), value=BOS_TOKEN_ID)
+        if len(z0_ids) > 0 and z0_ids[0] != vocab.token_to_id('<s>'):
+            z0_ids = F.pad(z0_ids, (1, 0), value=vocab.token_to_id('<s>'))
         z0_ids_list.append(z0_ids)
 
         # Process z1_token_ids
         z1_ids = sample['z1_token_ids']
-        pad_mask = z1_ids != PAD_TOKEN_ID
+        pad_mask = z1_ids != vocab.pad_token
         if pad_mask.any():
             actual_len = pad_mask.nonzero(as_tuple=False)[-1].item() + 1
             z1_ids = z1_ids[:actual_len]
-        if len(z1_ids) > 0 and z1_ids[0] != BOS_TOKEN_ID:
-            z1_ids = F.pad(z1_ids, (1, 0), value=BOS_TOKEN_ID)
+        if len(z1_ids) > 0 and z1_ids[0] != vocab.token_to_id('<s>'):
+            z1_ids = F.pad(z1_ids, (1, 0), value=vocab.token_to_id('<s>'))
         z1_ids_list.append(z1_ids)
 
         # Process x0_token_ids (no GAP tokens)
         x0_ids = sample['x0_token_ids']
-        pad_mask = x0_ids != PAD_TOKEN_ID
+        pad_mask = x0_ids != vocab.pad_token
         if pad_mask.any():
             actual_len = pad_mask.nonzero(as_tuple=False)[-1].item() + 1
             x0_ids = x0_ids[:actual_len]
-        if len(x0_ids) > 0 and x0_ids[0] != BOS_TOKEN_ID:
-            x0_ids = F.pad(x0_ids, (1, 0), value=BOS_TOKEN_ID)
+        if len(x0_ids) > 0 and x0_ids[0] != vocab.token_to_id('<s>'):
+            x0_ids = F.pad(x0_ids, (1, 0), value=vocab.token_to_id('<s>'))
         x0_ids_list.append(x0_ids)
 
         # Process x1_token_ids (no GAP tokens)
         x1_ids = sample['x1_token_ids']
-        pad_mask = x1_ids != PAD_TOKEN_ID
+        pad_mask = x1_ids != vocab.pad_token
         if pad_mask.any():
             actual_len = pad_mask.nonzero(as_tuple=False)[-1].item() + 1
             x1_ids = x1_ids[:actual_len]
-        if len(x1_ids) > 0 and x1_ids[0] != BOS_TOKEN_ID:
-            x1_ids = F.pad(x1_ids, (1, 0), value=BOS_TOKEN_ID)
+        if len(x1_ids) > 0 and x1_ids[0] != vocab.token_to_id('<s>'):
+            x1_ids = F.pad(x1_ids, (1, 0), value=vocab.token_to_id('<s>'))
         x1_ids_list.append(x1_ids)
 
         x_values_list.append(sample['x_values'])
@@ -115,10 +109,10 @@ def make_batch(
     x0_max_len = max(len(x) for x in x0_ids_list)
     x1_max_len = max(len(x) for x in x1_ids_list)
 
-    x_0 = torch.stack([F.pad(x, (0, x0_max_len - len(x)), value=PAD_TOKEN_ID) for x in x0_ids_list]).to(device)
-    x_1 = torch.stack([F.pad(x, (0, x1_max_len - len(x)), value=PAD_TOKEN_ID) for x in x1_ids_list]).to(device)
-    z_0 = torch.stack([F.pad(z, (0, z_max_len - len(z)), value=PAD_TOKEN_ID) for z in z0_ids_list]).to(device)
-    z_1 = torch.stack([F.pad(z, (0, z_max_len - len(z)), value=PAD_TOKEN_ID) for z in z1_ids_list]).to(device)
+    x_0 = torch.stack([F.pad(x, (0, x0_max_len - len(x)), value=vocab.pad_token) for x in x0_ids_list]).to(device)
+    x_1 = torch.stack([F.pad(x, (0, x1_max_len - len(x)), value=vocab.pad_token) for x in x1_ids_list]).to(device)
+    z_0 = torch.stack([F.pad(z, (0, z_max_len - len(z)), value=vocab.pad_token) for z in z0_ids_list]).to(device)
+    z_1 = torch.stack([F.pad(z, (0, z_max_len - len(z)), value=vocab.pad_token) for z in z1_ids_list]).to(device)
 
     t = torch.rand(batch_size, 1, device=device)
 
@@ -138,16 +132,18 @@ class SRDataLoader:
         batch_size: int = 32,
         shuffle: bool = True,
         device: torch.device = torch.device('cpu'),
+        vocab=None,
     ):
         self.dataset = SymbolicRegressionDataset(npz_path, shuffle=shuffle)
         self.batch_size = batch_size
         self.device = device
+        self.vocab = vocab
         self.indices = list(range(len(self.dataset)))
 
     def __iter__(self):
         for i in range(0, len(self.dataset), self.batch_size):
             batch_indices = self.indices[i:i + self.batch_size]
-            yield make_batch(self.dataset, batch_indices, self.device)
+            yield make_batch(self.dataset, batch_indices, self.vocab, self.device)
 
     def __len__(self):
         return (len(self.dataset) + self.batch_size - 1) // self.batch_size
