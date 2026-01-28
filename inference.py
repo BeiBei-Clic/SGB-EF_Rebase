@@ -122,7 +122,7 @@ def apply_ins_del_operations(
     return x_new, eff_ins_mask.sum().item(), eff_del_mask.sum().item()
 
 
-def load_test_sample(npz_path: str, sample_idx: int, device: torch.device) -> Tuple:
+def load_test_sample(npz_path: str, sample_idx: int, device: torch.device, vocab: Vocabulary = None) -> Tuple:
     """从 NPZ 文件加载指定样本。
 
     Args:
@@ -142,6 +142,12 @@ def load_test_sample(npz_path: str, sample_idx: int, device: torch.device) -> Tu
     y_target = torch.from_numpy(data['y_target'][sample_idx]).float().to(device)
     x0_token_ids = torch.from_numpy(data['x0_token_ids'][sample_idx]).long().to(device)
     x1_token_ids = torch.from_numpy(data['x1_token_ids'][sample_idx]).long().to(device)
+
+    # 与训练时保持一致，在开头添加 <s> token
+    if vocab is not None:
+        bos_token_id = vocab.token_to_id('<s>')
+        if x0_token_ids[0] != bos_token_id:
+            x0_token_ids = F.pad(x0_token_ids, (1, 0), value=bos_token_id)
 
     return x_values, y_target, x0_token_ids, x1_token_ids
 
@@ -339,7 +345,7 @@ def main():
 
     # 加载数据
     print(f"\n加载数据 (样本 {args.sample_idx})...")
-    x_values, y_target, x0_token_ids, x1_token_ids = load_test_sample(args.data_path, args.sample_idx, device)
+    x_values, y_target, x0_token_ids, x1_token_ids = load_test_sample(args.data_path, args.sample_idx, device, vocab)
     print(f"  x_values shape: {x_values.shape}")
     print(f"  y_target shape: {y_target.shape}")
 

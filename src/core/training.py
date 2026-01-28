@@ -3,7 +3,6 @@
 Based on edit-flows-demo/main.py structure, adapted for symbolic regression.
 """
 
-import pysnooper
 import torch
 
 from src.data_loader.data_loader import SRDataLoader
@@ -20,9 +19,6 @@ from .flow_helper import (
 )
 
 
-@pysnooper.snoop('logs/debug.log', 
-watch=['z_0', 'z_1','uz_mask', 'u_t','uz_cat']
-)
 def train_one_epoch(
     model: EditFlowsTransformer,
     data_loader: SRDataLoader,
@@ -102,7 +98,22 @@ def train_one_epoch(
 
         optimizer.zero_grad()
         loss.backward()
+
+        # 计算梯度范数
+        total_norm = 0.0
+        for p in model.parameters():
+            if p.grad is not None:
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+        total_norm = total_norm ** 0.5
+
+        # 获取当前学习率
+        current_lr = optimizer.param_groups[0]['lr']
+
         optimizer.step()
+
+        # 输出训练信息
+        print(f"  Loss: {loss.item():.4f} | LR: {current_lr:.2e} | Grad Norm: {total_norm:.4f}")
 
         total_loss += loss.item()
 

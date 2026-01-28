@@ -130,7 +130,8 @@ class EditFlowsTransformer(nn.Module):
         self.layers = nn.ModuleList([
             nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=num_heads,
                                         dim_feedforward=hidden_dim * 4,
-                                        dropout=0.1, activation='gelu',
+                                        # dropout=0.1,
+                                        activation='gelu',
                                         batch_first=False)
             for _ in range(num_layers)
         ])
