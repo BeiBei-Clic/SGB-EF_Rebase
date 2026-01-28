@@ -89,7 +89,7 @@ class CheckpointManager:
         model: EditFlowsTransformer,
         encoder: SetEncoder,
         optimizer: torch.optim.Optimizer,
-        device: torch.device,
+        device: torch.device = None,
     ) -> TrainingState:
         """恢复训练状态。
 
@@ -98,17 +98,18 @@ class CheckpointManager:
             model: EditFlowsTransformer 模型实例
             encoder: SetEncoder 编码器实例
             optimizer: 优化器实例
-            device: 设备
+            device: 设备（可选，默认为 'cpu'）
 
         Returns:
             TrainingState: 训练状态
         """
         checkpoint_path = Path(checkpoint_path)
 
+        map_location = device if device else 'cpu'
         # 加载权重
-        model.load_state_dict(torch.load(checkpoint_path / "model.pt", map_location=device))
-        encoder.load_state_dict(torch.load(checkpoint_path / "encoder.pt", map_location=device))
-        optimizer.load_state_dict(torch.load(checkpoint_path / "optimizer.pt", map_location=device))
+        model.load_state_dict(torch.load(checkpoint_path / "model.pt", map_location=map_location))
+        encoder.load_state_dict(torch.load(checkpoint_path / "encoder.pt", map_location=map_location))
+        optimizer.load_state_dict(torch.load(checkpoint_path / "optimizer.pt", map_location=map_location))
 
         # 加载训练状态
         with open(checkpoint_path / "training_state.json", "r") as f:

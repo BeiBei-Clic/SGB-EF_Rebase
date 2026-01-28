@@ -5,7 +5,10 @@ Based on edit-flows-demo/main.py structure, adapted for symbolic regression.
 
 import torch
 
-from src.data_loader.data_loader import SRDataLoader
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from accelerate import Accelerator
 from src.model.EditFlowsTransformer import EditFlowsTransformer
 from src.model.data_embedding import SetEncoder, prepare_encoder_input
 from src.model.vocab import Vocabulary
@@ -21,12 +24,12 @@ from .flow_helper import (
 
 def train_one_epoch(
     model: EditFlowsTransformer,
-    data_loader: SRDataLoader,
+    data_loader,
     optimizer: torch.optim.Optimizer,
     scheduler: CubicScheduler,
-    device: torch.device,
     vocab: Vocabulary,
     data_encoder: SetEncoder = None,
+    accelerator: Optional["Accelerator"] = None,
 ) -> float:
     """Single training epoch loop.
 
@@ -35,9 +38,9 @@ def train_one_epoch(
         data_loader: Data loader for symbolic regression
         optimizer: Optimizer (e.g., Adam)
         scheduler: Kappa scheduler for flow interpolation
-        device: Device to train on
         vocab: Vocabulary for token IDs and vocab_size
         data_encoder: SetEncoder for encoding (x_values, y_target) pairs
+        accelerator: Accelerate accelerator for distributed training
 
     Returns:
         Average loss over the epoch
@@ -51,6 +54,16 @@ def train_one_epoch(
 
     for step, batch in enumerate(data_loader):
         x_0, x_1, z_0, z_1, t, x_values, y_target = batch
+
+        # 将数据移到正确设备
+        device = next(model.parameters()).device
+        x_0 = x_0.to(device)
+        x_1 = x_1.to(device)
+        z_0 = z_0.to(device)
+        z_1 = z_1.to(device)
+        t = t.to(device)
+        x_values = x_values.to(device)
+        y_target = y_target.to(device)
 
         condition = None
         if data_encoder is not None:
@@ -87,17 +100,20 @@ def train_one_epoch(
         # 数值稳定性修复：防止 t 接近 1 时除以零导致溢出
         kappa_t = scheduler(t)
         denom = (1 - kappa_t).clamp(min=1e-6)
-        sched_coeff = (scheduler.derivative(t) / denom).to(device)
+        sched_coeff = (scheduler.derivative(t) / denom)
         sched_coeff = sched_coeff.clamp(max=50.0)
 
         uz_cat_safe = uz_cat.clamp(min=1e-8)
         log_uz_cat = uz_cat_safe.log().clamp(min=-20, max=20)
         u_tot = u_t.sum(dim=(1, 2))
-        loss = u_tot - (log_uz_cat * uz_mask.to(device) * sched_coeff.unsqueeze(-1)).sum(dim=(1, 2))
+        loss = u_tot - (log_uz_cat * uz_mask * sched_coeff.unsqueeze(-1)).sum(dim=(1, 2))
         loss = loss.mean()
 
         optimizer.zero_grad()
-        loss.backward()
+        if accelerator:
+            accelerator.backward(loss)
+        else:
+            loss.backward()
 
         # 计算梯度范数
         total_norm = 0.0
@@ -112,8 +128,9 @@ def train_one_epoch(
 
         optimizer.step()
 
-        # 输出训练信息
-        print(f"  Loss: {loss.item():.4f} | LR: {current_lr:.2e} | Grad Norm: {total_norm:.4f}")
+        # 仅主进程输出训练信息
+        if accelerator is None or accelerator.is_main_process:
+            print(f"  Loss: {loss.item():.4f} | LR: {current_lr:.2e} | Grad Norm: {total_norm:.4f}")
 
         total_loss += loss.item()
 
