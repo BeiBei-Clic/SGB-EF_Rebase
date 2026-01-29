@@ -135,3 +135,91 @@ def train_one_epoch(
         total_loss += loss.item()
 
     return total_loss / num_batches
+
+
+def evaluate_one_epoch(
+    model: EditFlowsTransformer,
+    data_loader,
+    scheduler: CubicScheduler,
+    vocab: Vocabulary,
+    data_encoder: SetEncoder = None,
+    accelerator: Optional["Accelerator"] = None,
+) -> float:
+    """Single validation/test epoch loop (no gradient computation).
+
+    Args:
+        model: EditFlowsTransformer model
+        data_loader: Data loader for validation/test
+        scheduler: Kappa scheduler for flow interpolation
+        vocab: Vocabulary for token IDs and vocab_size
+        data_encoder: SetEncoder for encoding (x_values, y_target) pairs
+        accelerator: Accelerate accelerator for distributed training
+
+    Returns:
+        Average loss over the epoch
+    """
+    model.eval()
+    if data_encoder is not None:
+        data_encoder.eval()
+
+    total_loss = 0.0
+    num_batches = len(data_loader)
+
+    with torch.no_grad():
+        for step, batch in enumerate(data_loader):
+            x_0, x_1, z_0, z_1, t, x_values, y_target = batch
+
+            device = next(model.parameters()).device
+            x_0 = x_0.to(device)
+            x_1 = x_1.to(device)
+            z_0 = z_0.to(device)
+            z_1 = z_1.to(device)
+            t = t.to(device)
+            x_values = x_values.to(device)
+            y_target = y_target.to(device)
+
+            condition = None
+            if data_encoder is not None:
+                encoder_input = prepare_encoder_input(x_values, y_target)
+                condition = data_encoder(encoder_input)
+
+            z_t = sample_cond_pt(x2prob(z_0, vocab.vocab_size), x2prob(z_1, vocab.vocab_size), t, scheduler)
+            x_t, x_pad_mask, z_gap_mask, z_pad_mask = rm_gap_tokens(z_t, vocab.pad_token, vocab.gap_token)
+            uz_mask = make_ut_mask_from_z(
+                z_t, z_1,
+                vocab_size=vocab.vocab_size,
+                pad_token=vocab.pad_token,
+                gap_token=vocab.gap_token,
+            )
+
+            u_t, ins_probs, sub_probs = model.forward(
+                tokens=x_t,
+                time_step=t,
+                padding_mask=x_pad_mask,
+                condition=condition,
+            )
+
+            lambda_ins = u_t[:, :, 0]
+            lambda_sub = u_t[:, :, 1]
+            lambda_del = u_t[:, :, 2]
+
+            u_tia_ins = lambda_ins.unsqueeze(-1) * ins_probs
+            u_tia_sub = lambda_sub.unsqueeze(-1) * sub_probs
+            u_tia_del = lambda_del.unsqueeze(-1)
+
+            ux_cat = torch.cat([u_tia_ins, u_tia_sub, u_tia_del], dim=-1)
+            uz_cat = fill_gap_tokens_with_repeats(ux_cat, z_gap_mask, z_pad_mask)
+
+            kappa_t = scheduler(t)
+            denom = (1 - kappa_t).clamp(min=1e-6)
+            sched_coeff = (scheduler.derivative(t) / denom).clamp(max=50.0)
+
+            uz_cat_safe = uz_cat.clamp(min=1e-8)
+            log_uz_cat = uz_cat_safe.log().clamp(min=-20, max=20)
+            u_tot = u_t.sum(dim=(1, 2))
+            loss = u_tot - (log_uz_cat * uz_mask * sched_coeff.unsqueeze(-1)).sum(dim=(1, 2))
+            loss = loss.mean()
+
+            total_loss += loss.item()
+
+    return total_loss / num_batches
