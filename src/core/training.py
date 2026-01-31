@@ -30,6 +30,8 @@ def train_one_epoch(
     vocab: Vocabulary,
     data_encoder: SetEncoder = None,
     accelerator: Optional["Accelerator"] = None,
+    lr_scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
+    lr_step_per_batch: bool = False,
 ) -> float:
     """Single training epoch loop.
 
@@ -51,6 +53,10 @@ def train_one_epoch(
 
     total_loss = 0.0
     num_batches = len(data_loader)
+    grad_norms = []
+    lr_values = []
+    t_samples = []
+    sched_samples = []
 
     for step, batch in enumerate(data_loader):
         x_0, x_1, z_0, z_1, t, x_values, y_target = batch
@@ -117,7 +123,10 @@ def train_one_epoch(
 
         # 计算梯度范数
         total_norm = 0.0
-        for p in model.parameters():
+        params = list(model.parameters())
+        if data_encoder is not None:
+            params += list(data_encoder.parameters())
+        for p in params:
             if p.grad is not None:
                 param_norm = p.grad.data.norm(2)
                 total_norm += param_norm.item() ** 2
@@ -127,12 +136,36 @@ def train_one_epoch(
         current_lr = optimizer.param_groups[0]['lr']
 
         optimizer.step()
+        if lr_step_per_batch and lr_scheduler is not None:
+            lr_scheduler.step()
 
         # 仅主进程输出训练信息
         if accelerator is None or accelerator.is_main_process:
             print(f"  Loss: {loss.item():.4f} | LR: {current_lr:.2e} | Grad Norm: {total_norm:.4f}")
 
+        lr_values.append(current_lr)
+        grad_norms.append(total_norm)
+        if t.numel() > 0:
+            sample_n = min(256, t.numel())
+            t_samples.append(t.detach().view(-1)[:sample_n].cpu())
+            sched_samples.append(sched_coeff.detach().view(-1)[:sample_n].cpu())
+
         total_loss += loss.item()
+
+    if accelerator is None or accelerator.is_main_process:
+        lr_mean = sum(lr_values) / len(lr_values) if lr_values else 0.0
+        grad_mean = sum(grad_norms) / len(grad_norms) if grad_norms else 0.0
+        if t_samples:
+            t_cat = torch.cat(t_samples)
+            sched_cat = torch.cat(sched_samples)
+            t_p50 = torch.quantile(t_cat, 0.5).item()
+            t_p90 = torch.quantile(t_cat, 0.9).item()
+            s_p50 = torch.quantile(sched_cat, 0.5).item()
+            s_p90 = torch.quantile(sched_cat, 0.9).item()
+            print(
+                f"  Epoch stats | LR(mean): {lr_mean:.2e} | Grad(mean): {grad_mean:.4f} "
+                f"| t(p50/p90): {t_p50:.3f}/{t_p90:.3f} | sched(p50/p90): {s_p50:.3f}/{s_p90:.3f}"
+            )
 
     return total_loss / num_batches
 

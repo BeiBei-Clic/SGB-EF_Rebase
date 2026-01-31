@@ -45,6 +45,8 @@ def parse_args():
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
     parser.add_argument("--warmup-epochs", type=int, default=10, help="Number of warmup epochs")
     parser.add_argument("--min-lr", type=float, default=1e-6, help="Minimum learning rate")
+    parser.add_argument("--lr-step-per-batch", action="store_true",
+                        help="Step LR scheduler per batch instead of per epoch")
 
     # Checkpoint
     parser.add_argument("--checkpoint-dir", type=str, default="checkpoints",
@@ -65,6 +67,8 @@ def parse_args():
     parser.add_argument("--encoder-heads", type=int, default=16, help="Encoder attention heads")
     parser.add_argument("--encoder-layers", type=int, default=12, help="Number of encoder layers")
     parser.add_argument("--encoder-inds", type=int, default=128, help="Number of inducing points")
+    parser.add_argument("--encoder-input-normalization", action="store_true", default=True,
+                        help="Normalize y_target in SetEncoder input")
 
     # Scheduler
     parser.add_argument("--scheduler-a", type=float, default=1.0, help="Scheduler parameter a")
@@ -80,7 +84,7 @@ def parse_args():
     return parser.parse_args()
 
 
-# @pysnooper.snoop('logs/debug.log')
+@pysnooper.snoop('logs/debug.log')
 def main():
     # 清理并重新创建日志文件
     log_path = Path("logs/debug.log")
@@ -197,6 +201,7 @@ def main():
         n_l_enc=args.encoder_layers,
         num_features=1,
         linear=True,
+        input_normalization=args.encoder_input_normalization,
     )
     if accelerator.is_main_process:
         print(f"Data encoder parameters: {sum(p.numel() for p in data_encoder.parameters() if p.requires_grad)}")
@@ -219,8 +224,11 @@ def main():
     all_params = list(model.parameters()) + list(data_encoder.parameters())
     optimizer = torch.optim.Adam(all_params, lr=args.lr)
     flow_scheduler = CubicScheduler(a=args.scheduler_a, b=args.scheduler_b)
+    steps_per_epoch = len(train_loader)
+    total_steps = args.epochs * steps_per_epoch if args.lr_step_per_batch else args.epochs
+    warmup_steps = args.warmup_epochs * steps_per_epoch if args.lr_step_per_batch else args.warmup_epochs
     lr_scheduler = create_warmup_cosine_scheduler(
-        optimizer, args.epochs, args.warmup_epochs, args.min_lr
+        optimizer, total_steps, warmup_steps, args.min_lr
     )
 
     # 使用 prepare() 包装（在从检查点恢复之前）
@@ -251,9 +259,18 @@ def main():
 
         # 训练一个 epoch
         avg_train_loss = train_one_epoch(
-            model, train_loader, optimizer, flow_scheduler, vocab, data_encoder, accelerator
+            model,
+            train_loader,
+            optimizer,
+            flow_scheduler,
+            vocab,
+            data_encoder,
+            accelerator,
+            lr_scheduler=lr_scheduler,
+            lr_step_per_batch=args.lr_step_per_batch,
         )
-        lr_scheduler.step()
+        if not args.lr_step_per_batch:
+            lr_scheduler.step()
         if accelerator.is_main_process:
             print(f"Train loss: {avg_train_loss:.4f}")
 
@@ -316,4 +333,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        import torch.distributed as dist
+        if dist.is_initialized():
+            dist.destroy_process_group()
