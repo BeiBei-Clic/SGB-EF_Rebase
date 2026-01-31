@@ -7,9 +7,6 @@
 ### 数据准备
 
 ```bash
-# 将文本数据转换为 npz 格式
-uv run python src/utils/txt2Npz.py data/flow_samples_10000_3dim_100pts_6depth_12len.txt data/flow_samples_10000_3dim_100pts_6depth_12len.npz
-
 # 生成训练数据
 uv run python -m data_generator.data_generator --num-samples 1
 
