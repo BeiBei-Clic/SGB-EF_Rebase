@@ -350,12 +350,15 @@ def main():
     print(f"  y_target shape: {y_target.shape}")
 
     # 解码并打印初始表达式和目标表达式
-    initial_expr = decode_sequence_to_expr(x0_token_ids, vocab)
-    target_expr = decode_sequence_to_expr(x1_token_ids, vocab)
+    bos_id = vocab.token_to_id('<s>')
+    x0_print = x0_token_ids[x0_token_ids != bos_id]
+    x1_print = x1_token_ids[x1_token_ids != bos_id]
+    initial_expr = decode_sequence_to_expr(x0_print, vocab)
+    target_expr = decode_sequence_to_expr(x1_print, vocab)
     print(f"  初始表达式: {initial_expr}")
     print(f"  目标表达式: {target_expr}")
-    print(f"  初始序列: {x0_token_ids.tolist()}")
-    print(f"  目标序列: {x1_token_ids.tolist()}")
+    print(f"  初始序列: {x0_print.tolist()}")
+    print(f"  目标序列: {x1_print.tolist()}")
 
     # 创建调度器
     scheduler = CubicScheduler(a=2.0, b=0.5)
