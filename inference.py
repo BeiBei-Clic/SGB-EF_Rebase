@@ -215,6 +215,12 @@ def edit_flow_sampling(
             lambda_sub = rates[:, :, 1]
             lambda_del = rates[:, :, 2]
 
+            # 归一化：每个位置的三个操作概率和为 1
+            total = lambda_ins + lambda_sub + lambda_del + 1e-8
+            lambda_ins = lambda_ins / total
+            lambda_sub = lambda_sub / total
+            lambda_del = lambda_del / total
+
             if step == 0:
                 print(f"  Initial lambda_ins: {lambda_ins[0, :5].tolist()}")
                 print(f"  Initial lambda_sub: {lambda_sub[0, :5].tolist()}")
