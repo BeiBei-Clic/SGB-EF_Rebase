@@ -106,16 +106,22 @@ class CheckpointManager:
         checkpoint_path = Path(checkpoint_path)
 
         map_location = device if device else 'cpu'
-        # 加载权重
-        model.load_state_dict(torch.load(checkpoint_path / "model.pt", map_location=map_location))
+        # 加载权重（strict=False 允许部分加载，用于模型架构迁移场景）
+        model.load_state_dict(torch.load(checkpoint_path / "model.pt", map_location=map_location), strict=False)
         encoder.load_state_dict(torch.load(checkpoint_path / "encoder.pt", map_location=map_location))
-        optimizer.load_state_dict(torch.load(checkpoint_path / "optimizer.pt", map_location=map_location))
 
-        # 加载训练状态
-        with open(checkpoint_path / "training_state.json", "r") as f:
-            state_dict = json.load(f)
+        # 加载 optimizer（如果存在）
+        if (checkpoint_path / "optimizer.pt").exists():
+            optimizer.load_state_dict(torch.load(checkpoint_path / "optimizer.pt", map_location=map_location))
 
-        return TrainingState(**state_dict)
+        # 加载训练状态（如果存在）
+        if (checkpoint_path / "training_state.json").exists():
+            with open(checkpoint_path / "training_state.json", "r") as f:
+                state_dict = json.load(f)
+            return TrainingState(**state_dict)
+
+        # 如果只有模型权重，返回初始状态
+        return TrainingState(epoch=0, global_step=0, best_loss=float('inf'))
 
     @staticmethod
     def save_model_only(

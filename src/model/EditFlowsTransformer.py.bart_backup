@@ -4,10 +4,10 @@ import pysnooper
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers.models.bert.modeling_bert import BertModel, BertConfig
+from transformers.models.bart.modeling_bart import BartEncoder, BartConfig
 
 
-class EditFlowsConfig(BertConfig):
+class EditFlowsConfig(BartConfig):
     """EditFlows 模型配置"""
 
     def __init__(
@@ -24,10 +24,10 @@ class EditFlowsConfig(BertConfig):
     ):
         super().__init__(
             vocab_size=vocab_size,
-            hidden_size=hidden_dim,
-            num_hidden_layers=num_layers,
-            num_attention_heads=num_heads,
-            intermediate_size=hidden_dim * 4,
+            d_model=hidden_dim,
+            encoder_layers=num_layers,
+            encoder_attention_heads=num_heads,
+            encoder_ffn_dim=hidden_dim * 4,
             max_position_embeddings=max_seq_len,
             bos_token_id=bos_token_id,
             pad_token_id=pad_token_id,
@@ -157,14 +157,14 @@ class EditFlowsTransformer(nn.Module):
         assert bos_token_id < vocab_size, "bos_token_id must be less than vocab_size"
         assert pad_token_id < vocab_size, "pad_token_id must be less than vocab_size"
 
-        # self.token_embedding = nn.Embedding(vocab_size, hidden_dim)     # Token embeddings (使用 BERT 内部)
+        self.token_embedding = nn.Embedding(vocab_size, hidden_dim)     # Token embeddings
         self.time_embedding = nn.Sequential(                            # Time embeddings
             SinusoidalTimeEmbedding(hidden_dim=hidden_dim),
             nn.Linear(hidden_dim, hidden_dim),
             nn.SiLU(),
             nn.Linear(hidden_dim, hidden_dim)
         )
-        # self.pos_embedding = nn.Embedding(max_seq_len, hidden_dim)      # Positional embeddings (使用 BERT 内部位置嵌入)
+        self.pos_embedding = nn.Embedding(max_seq_len, hidden_dim)      # Positional embeddings
 
         # 使用 Hugging Face BartEncoder
         config = EditFlowsConfig(
@@ -176,7 +176,7 @@ class EditFlowsTransformer(nn.Module):
             bos_token_id=bos_token_id,
             pad_token_id=pad_token_id,
         )
-        self.encoder = BertModel(config, add_pooling_layer=False)
+        self.encoder = BartEncoder(config)
 
         # 交叉注意力层（每层一个）
         self.cross_attn_layers = nn.ModuleList([
@@ -225,15 +225,15 @@ class EditFlowsTransformer(nn.Module):
         """Forward pass takes in x_t, t, padding mask, and condition, returns rates and probabilities
         """
         batch_size, x_seq_len = tokens.shape
-        # token_emb = self.token_embedding(tokens)    # (batch_size, x_seq_len, hidden_dim)
+        token_emb = self.token_embedding(tokens)    # (batch_size, x_seq_len, hidden_dim)
 
         time_emb = self.time_embedding(time_step)   # (batch_size, hidden_dim)
         time_emb = time_emb.unsqueeze(1).expand(-1, x_seq_len, -1)  # (batch_size, x_seq_len, hidden_dim)
 
-        # positions = torch.arange(x_seq_len, device=tokens.device).unsqueeze(0).expand(batch_size, -1)
-        # pos_emb = self.pos_embedding(positions)     # (batch_size, x_seq_len, hidden_dim)
+        positions = torch.arange(x_seq_len, device=tokens.device).unsqueeze(0).expand(batch_size, -1)
+        pos_emb = self.pos_embedding(positions)     # (batch_size, x_seq_len, hidden_dim)
 
-        # x = token_emb + time_emb  # (batch_size, x_seq_len, hidden_dim) - BERT 内部会自动添加位置嵌入
+        x = token_emb + time_emb + pos_emb          # (batch_size, x_seq_len, hidden_dim)
 
         # 处理条件：投影并转置
         cond_seq = self.cond_proj(condition)  # (batch, num_features, hidden_dim)
@@ -242,15 +242,12 @@ class EditFlowsTransformer(nn.Module):
         # 转换 padding_mask 格式：padding_mask (True=padding) -> attention_mask (1=keep, 0=pad)
         attention_mask = (~padding_mask).long()
 
-        # 使用 BERT encoder，传入 input_ids 让 BERT 内部做 token embedding
+        # 使用 BartEncoder
         encoder_outputs = self.encoder(
-            input_ids=tokens,
+            inputs_embeds=x,
             attention_mask=attention_mask
         )
         x = encoder_outputs.last_hidden_state  # (batch_size, x_seq_len, hidden_dim)
-
-        # 将时间嵌入加到 BERT 输出上
-        x = x + time_emb
 
         # BartEncoder 后加入交叉注意力融合条件信息
         x = x.transpose(0, 1)

@@ -20,7 +20,7 @@ python -m data_generator.data_generator --num-samples 10000 --num-workers 1
 ### 模型训练
 
 ```bash
-uv run python train.py --epochs 50 --lr 1e-4 --data-path data/data_10_3v.npz
+uv run python train.py --epochs 50 --data-path data/data_10_3v.npz
 
 uv run accelerate launch --num_processes 1 train.py --data-path data/data_10000_3v.npz --epochs 100 --batch-size 32
 

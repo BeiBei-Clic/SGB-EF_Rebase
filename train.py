@@ -42,7 +42,7 @@ def parse_args():
     # Training
     parser.add_argument("--epochs", type=int, default=10, help="Number of epochs")
     parser.add_argument("--batch-size", type=int, default=128, help="Batch size")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
     parser.add_argument("--warmup-epochs", type=int, default=5, help="Number of warmup epochs")
     parser.add_argument("--min-lr", type=float, default=1e-6, help="Minimum learning rate")
     parser.add_argument("--lr-step-per-batch", action="store_true",
@@ -53,7 +53,7 @@ def parse_args():
                         help="Checkpoint save directory")
     parser.add_argument("--checkpoint-every", type=int, default=50,
                         help="Save checkpoint every N epochs")
-    parser.add_argument("--resume-from", type=str, default=None,
+    parser.add_argument("--resume-from", type=str, default="checkpoints/best_model",
                         help="Resume training from checkpoint path")
 
     # Model
@@ -238,14 +238,22 @@ def main():
 
     # 从检查点恢复（需要在 prepare 之后使用 unwrap_model）
     if args.resume_from:
-        if accelerator.is_main_process:
-            print(f"Resuming from checkpoint: {args.resume_from}")
-        training_state = CheckpointManager.load_checkpoint(
-            args.resume_from, model, data_encoder, optimizer
-        )
-        start_epoch = training_state.epoch + 1
-        if accelerator.is_main_process:
-            print(f"Resumed from epoch {training_state.epoch}, best_loss: {training_state.best_loss:.4f}")
+        resume_path = Path(args.resume_from)
+        model_path = resume_path / "model.pt"
+        if model_path.exists():
+            if accelerator.is_main_process:
+                print(f"Resuming from checkpoint: {args.resume_from}")
+            training_state = CheckpointManager.load_checkpoint(
+                args.resume_from, model, data_encoder, optimizer
+            )
+            start_epoch = training_state.epoch + 1
+            if accelerator.is_main_process:
+                print(f"Resumed from epoch {training_state.epoch}, best_loss: {training_state.best_loss:.4f}")
+        else:
+            if accelerator.is_main_process:
+                print(f"Checkpoint not found at {model_path}, starting from scratch.")
+            training_state = TrainingState(epoch=0, global_step=0, best_loss=float('inf'))
+            start_epoch = 0
     else:
         training_state = TrainingState(epoch=0, global_step=0, best_loss=float('inf'))
         start_epoch = 0
