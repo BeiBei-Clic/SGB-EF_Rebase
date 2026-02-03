@@ -112,7 +112,7 @@ def train_one_epoch(
         uz_cat_safe = uz_cat.clamp(min=1e-8)
         log_uz_cat = uz_cat_safe.log().clamp(min=-20, max=20)
         u_tot = u_t.sum(dim=(1, 2))
-        loss = - (log_uz_cat * uz_mask * sched_coeff.unsqueeze(-1)).sum(dim=(1, 2))
+        loss = u_tot - (log_uz_cat * uz_mask * sched_coeff.unsqueeze(-1)).sum(dim=(1, 2))
         loss = loss.mean()
 
         optimizer.zero_grad()
@@ -249,7 +249,8 @@ def evaluate_one_epoch(
 
             uz_cat_safe = uz_cat.clamp(min=1e-8)
             log_uz_cat = uz_cat_safe.log().clamp(min=-20, max=20)
-            loss = - (log_uz_cat * uz_mask * sched_coeff.unsqueeze(-1)).sum(dim=(1, 2))
+            u_tot = u_t.sum(dim=(1, 2))
+            loss = u_tot - (log_uz_cat * uz_mask * sched_coeff.unsqueeze(-1)).sum(dim=(1, 2))
             loss = loss.mean()
 
             total_loss += loss.item()
