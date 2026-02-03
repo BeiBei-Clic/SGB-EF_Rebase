@@ -160,7 +160,7 @@ def edit_flow_sampling(
     x0_token_ids: torch.Tensor,
     vocab: Vocabulary,
     scheduler: CubicScheduler,
-    n_steps: int = 1000,
+    n_steps: int = 10,
     default_h: float = 0.1,
     device: torch.device = torch.device('cpu'),
 ) -> torch.Tensor:

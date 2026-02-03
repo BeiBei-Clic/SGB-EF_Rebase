@@ -4,7 +4,7 @@ Based on edit-flows-demo/main.py structure, adapted for symbolic regression.
 """
 
 import torch
-
+import pysnooper
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -169,7 +169,7 @@ def train_one_epoch(
 
     return total_loss / num_batches
 
-
+@pysnooper.snoop('logs/debug.log')
 def evaluate_one_epoch(
     model: EditFlowsTransformer,
     data_loader,

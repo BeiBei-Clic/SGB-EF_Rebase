@@ -43,7 +43,7 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=10, help="Number of epochs")
     parser.add_argument("--batch-size", type=int, default=128, help="Batch size")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
-    parser.add_argument("--warmup-epochs", type=int, default=10, help="Number of warmup epochs")
+    parser.add_argument("--warmup-epochs", type=int, default=5, help="Number of warmup epochs")
     parser.add_argument("--min-lr", type=float, default=1e-6, help="Minimum learning rate")
     parser.add_argument("--lr-step-per-batch", action="store_true",
                         help="Step LR scheduler per batch instead of per epoch")

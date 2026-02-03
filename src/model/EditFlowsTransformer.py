@@ -165,7 +165,7 @@ class EditFlowsTransformer(nn.Module):
     def _init_weights(self):
         for module in self.modules():
             if isinstance(module, nn.Linear):
-                torch.nn.init.xavier_uniform_(module.weight, gain=0.1)
+                torch.nn.init.xavier_uniform_(module.weight, gain=1.0)
                 if module.bias is not None:
                     torch.nn.init.zeros_(module.bias)
             elif isinstance(module, nn.Embedding):

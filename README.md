@@ -20,7 +20,7 @@ python -m data_generator.data_generator --num-samples 10000 --num-workers 1
 ### 模型训练
 
 ```bash
-uv run python train.py --epochs 1000 --lr 1e-4 --checkpoint-every 500 --data-path data/data_1_3v.npz
+uv run python train.py --epochs 50 --lr 1e-4 --data-path data/data_10_3v.npz
 
 uv run accelerate launch --num_processes 1 train.py --data-path data/data_10000_3v.npz --epochs 100 --batch-size 32
 
@@ -31,14 +31,14 @@ CUDA_VISIBLE_DEVICES=0
 
 ```bash
 # 单样本推理
-uv run python inference.py --sample-idx 0 --n-steps 500 --data-path data/data_1_3v.npz
+uv run python inference.py --sample-idx 0 --n-steps 10 --data-path data/data_10_3v.npz
 ```
 
 ### 数据查看
 
 ```bash
 # 查看数据集内容
-uv run python -m data_generator.view_data --path data/data_1_3v.npz --num-samples 1
+uv run python -m data_generator.view_data --path data/data_10_3v.npz --num-samples 1
 ```
 
 ### 测试与调试
