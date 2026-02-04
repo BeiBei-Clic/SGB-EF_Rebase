@@ -25,6 +25,9 @@ uv run python train.py --epochs 50 --data-path data/data_10_3v.npz
 uv run accelerate launch --num_processes 1 train.py --data-path data/data_10000_3v.npz --epochs 100 --batch-size 32
 
 CUDA_VISIBLE_DEVICES=0
+
+CUDA_VISIBLE_DEVICES=0,1 uv run accelerate launch --num_processes 2 train.p
+y --data-path data/data_1000000_3v.npz --epochs 100 --batch-size 64
 ```
 
 ### 推理与采样

@@ -169,7 +169,7 @@ def train_one_epoch(
 
     return total_loss / num_batches
 
-@pysnooper.snoop('logs/debug.log')
+# @pysnooper.snoop('logs/debug.log')
 def evaluate_one_epoch(
     model: EditFlowsTransformer,
     data_loader,
